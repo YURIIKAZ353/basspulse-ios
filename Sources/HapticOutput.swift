@@ -89,6 +89,12 @@ final class HapticOutput {
         try? continuous?.stop(atTime: CHHapticTimeImmediate)
         continuous = nil
         ready = false
-        engine?.stop(completionHandler: nil)
+        // stop is asynchronous. A subsequent prepare must not restart this same
+        // engine while its previous stop is still pending.
+        let retiring = engine
+        engine = nil
+        retiring?.stoppedHandler = nil
+        retiring?.resetHandler = nil
+        retiring?.stop { [retiring] _ in _ = retiring }
     }
 }

@@ -44,6 +44,8 @@ final class AudioController: ObservableObject {
     @Published private(set) var hapticStatus = "Вибрация ещё не запускалась"
     @Published private(set) var route = ""
     @Published private(set) var latencyMS = 0
+    @Published private(set) var lastFailure = ""
+    @Published private(set) var audioFormatInfo = ""
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
@@ -146,16 +148,29 @@ final class AudioController: ObservableObject {
 
     func play() {
         guard let selectedURL else { errorMessage = "Сначала выбери аудиофайл или встроенный тест."; return }
-        stop()
+        stop(deactivateSession: false)
+        var stage = "настройка аудиосессии"
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [])
+            stage = "активация аудиосессии"
             try session.setActive(true)
+            updateRoute()
+            stage = "открытие выбранного файла"
             let file = try AVAudioFile(forReading: selectedURL)
             let engine = AVAudioEngine()
             let node = AVAudioPlayerNode()
+            stage = "проверка аудиовыхода"
+            let output = engine.outputNode
+            let hardware = output.outputFormat(forBus: 0)
+            audioFormatInfo = "Файл: \(file.processingFormat.sampleRate) Гц / \(file.processingFormat.channelCount) кан.\nВыход: \(hardware.sampleRate) Гц / \(hardware.channelCount) кан."
+            guard hardware.sampleRate > 0, hardware.channelCount > 0 else {
+                throw PrototypeError.unavailableOutput
+            }
+            stage = "соединение аудиоузлов"
             engine.attach(node)
             engine.connect(node, to: engine.mainMixerNode, format: file.processingFormat)
+            engine.connect(engine.mainMixerNode, to: output, format: hardware)
             let token = UUID()
             generation = token
             let analysis = AnalysisBridge()
@@ -179,7 +194,9 @@ final class AudioController: ObservableObject {
                     self.status = "Воспроизведение завершено"
                 }
             }
+            stage = "подготовка AVAudioEngine"
             engine.prepare()
+            stage = "запуск AVAudioEngine"
             try engine.start()
             // A haptic error must not prevent audio playback or the meters.
             do { try haptics.prepare() }
@@ -198,8 +215,12 @@ final class AudioController: ObservableObject {
                 }
             }
         } catch {
+            updateRoute()
+            let failure = describe(error, stage: stage)
             stop()
-            errorMessage = "Не удалось запустить: \(error.localizedDescription)"
+            lastFailure = failure
+            status = "Ошибка на этапе: \(stage)"
+            errorMessage = failure
         }
     }
 
@@ -226,7 +247,7 @@ final class AudioController: ObservableObject {
         }
     }
 
-    func stop() {
+    func stop(deactivateSession: Bool = true) {
         generation = UUID() // Invalidates completion callbacks and delayed haptics.
         isPlaying = false
         pending = 0
@@ -241,7 +262,9 @@ final class AudioController: ObservableObject {
         activeAnalysis = nil
         levels = [-100, -100]
         drive = 0
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if deactivateSession {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
         status = "Остановлено"
     }
 
@@ -261,20 +284,25 @@ final class AudioController: ObservableObject {
                 self.haptics.stop()
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            lastFailure = describe(error, stage: "отдельный тест вибрации")
+            errorMessage = lastFailure
+        }
     }
 
     func resetSettings() { settings = PulseSettings() }
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.0
+        BassPulse 0.1.1 (2)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
         Haptics supported: \(haptics.supported)
         Haptics: \(hapticStatus)
         State: \(status)
+        Formats: \(audioFormatInfo)
+        Last error: \(lastFailure)
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
         """
     }
@@ -284,9 +312,28 @@ final class AudioController: ObservableObject {
         route = session.currentRoute.outputs.map { $0.portName }.joined(separator: ", ")
         latencyMS = Int(session.outputLatency * 1000)
     }
+
+    private func describe(_ error: Error, stage: String) -> String {
+        let ns = error as NSError
+        let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError
+        let details = underlying.map { "\nПричина: \($0.domain), \($0.code): \($0.localizedDescription)" } ?? ""
+        return """
+        Этап: \(stage)
+        \(ns.localizedDescription)
+        Код: \(ns.code) • \(ns.domain)\(details)
+        Выход: \(route.isEmpty ? "не определён" : route)
+        \(audioFormatInfo)
+        """
+    }
 }
 
 enum PrototypeError: LocalizedError {
     case emptyFile
-    var errorDescription: String? { "Файл пуст или не содержит доступного аудио." }
+    case unavailableOutput
+    var errorDescription: String? {
+        switch self {
+        case .emptyFile: return "Файл пуст или не содержит доступного аудио."
+        case .unavailableOutput: return "iOS ещё не предоставила аудиовыход. Выбери наушники в Пункте управления и повтори запуск."
+        }
+    }
 }
