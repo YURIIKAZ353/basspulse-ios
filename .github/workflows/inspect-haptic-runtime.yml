@@ -31,14 +31,28 @@ jobs:
       - name: Build read-only runtime inspector
         run: |
           xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=27.0 \
-            -fobjc-arc -framework Foundation -framework CoreHaptics -framework AudioToolbox \
-            Research/RuntimeInspect.m -o research-output/runtime-inspect
+            -fobjc-arc -framework Foundation -framework CoreHaptics -framework AudioToolbox -framework AVFoundation \
+            Research/RuntimeInspect.m Research/MediaRouteProbe.m -o research-output/runtime-inspect
           codesign --force --sign - research-output/runtime-inspect
+          xcrun clang -arch arm64 -fobjc-arc -framework Foundation -framework CoreHaptics \
+            -framework AudioToolbox -framework AVFoundation \
+            Research/RuntimeInspect.m Research/MediaRouteProbe.m -o research-output/runtime-inspect-host
       - name: Inspect loaded simulator frameworks
         run: |
           xcrun simctl boot "$RESEARCH_SIM"
-          xcrun simctl bootstatus "$RESEARCH_SIM" -b
-          xcrun simctl spawn "$RESEARCH_SIM" "$PWD/research-output/runtime-inspect" > research-output/runtime-raw.txt
+          python3 - <<'PY'
+          import os, subprocess
+          sim = os.environ['RESEARCH_SIM']
+          with open('research-output/simulator-boot.txt', 'w') as log:
+              try:
+                  subprocess.run(['xcrun', 'simctl', 'bootstatus', sim, '-b'], timeout=180, stdout=log, stderr=log, check=True)
+                  with open('research-output/runtime-raw.txt', 'w') as output:
+                      subprocess.run(['xcrun', 'simctl', 'spawn', sim, os.path.abspath('research-output/runtime-inspect')], timeout=90, stdout=output, stderr=log, check=True)
+              except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+                  print('Simulator unavailable; collecting separately labelled HOST fallback:', exc)
+                  with open('research-output/runtime-raw.txt', 'w') as output:
+                      subprocess.run(['research-output/runtime-inspect-host'], timeout=90, stdout=output, stderr=log, check=True)
+          PY
           python3 - <<'PY'
           import json
           lines = open('research-output/runtime-raw.txt').read().splitlines()

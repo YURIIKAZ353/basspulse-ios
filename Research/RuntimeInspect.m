@@ -4,6 +4,7 @@
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <mach/mach.h>
+extern NSDictionary *BPProbeMediaRoutes(void);
 
 static NSDictionary *label(const void *address) {
     Dl_info info = {0};
@@ -87,6 +88,7 @@ int main(int argc, char **argv) {
             }
         }
         result[@"constants"] = constants;
+        result[@"mediaRoutes"] = BPProbeMediaRoutes();
         NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
         printf("BPRESEARCH:%s\n", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
     }
