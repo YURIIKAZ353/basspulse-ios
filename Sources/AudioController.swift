@@ -54,7 +54,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var probeRunning = false
     @Published var probeMode: HapticProbeMode = .sharedSilent
     @Published var playbackMode: PlaybackMode = .liveShared
-    @Published var audibleSupportTone = false
+    @Published var supportAudioLevel: Double = 0
     var useCombinedPlayback: Bool { playbackMode == .combined }
     @Published var errorMessage: String?
 
@@ -401,7 +401,7 @@ final class AudioController: ObservableObject {
         File: \(fileInfo)
         Last error: \(lastFailure)
         Selected probe: \(probeMode.rawValue)
-        Playback mode: \(playbackMode.rawValue); audible support tone: \(audibleSupportTone)
+        Playback mode: \(playbackMode.rawValue); support audio level: \(supportAudioLevel)
         Playback backend: \(useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
         Runtime:
         \(diagnostics.report())
@@ -417,7 +417,7 @@ final class AudioController: ObservableObject {
 
     private func prepareLiveHaptics() throws {
         if playbackMode == .liveShared {
-            try haptics.prepareReactive(audioLevel: audibleSupportTone ? 0.03 : 0)
+            try haptics.prepareReactive(audioLevel: Float(supportAudioLevel))
         } else { try haptics.prepare() }
     }
 

@@ -31,11 +31,16 @@ struct ContentView: View {
                          : "Музыка проигрывается непрерывно, без нарезки. Настройки частот и силы применяются сразу. Фоновую вибрацию нового варианта ещё проверяем.")
                         .font(.caption).foregroundStyle(.secondary)
                     if audio.playbackMode == .liveShared {
-                        Toggle("Тихий тестовый тон для сравнения", isOn: $audio.audibleSupportTone)
-                            .disabled(audio.isPlaying || audio.isImporting)
-                        Text(audio.audibleSupportTone
-                             ? "Добавлен синтезированный тон, как в успешном фоновом тесте. Это диагностический вариант."
-                             : "Синтезированный аудиоэлемент имеет нулевую громкость. Проверяем, сохранит ли он фоновую вибрацию без слышимого тона.")
+                        Picker("Аудиоэлемент для проверки фона", selection: $audio.supportAudioLevel) {
+                            Text("Нулевая громкость").tag(0.0)
+                            Text("Минимальная громкость").tag(0.00001)
+                            Text("Тестовый тон").tag(0.03)
+                        }.disabled(audio.isPlaying || audio.isImporting)
+                        Text(audio.supportAudioLevel == 0
+                             ? "Синтезированный аудиоэлемент имеет нулевую громкость. Проверяем, сохранит ли он фоновую вибрацию без слышимого тона."
+                             : audio.supportAudioLevel < 0.001
+                             ? "Очень низкая громкость аудиоэлемента. Проверяем отдельно его влияние на фон и слышимость в наушниках."
+                             : "Добавлен тихий синтезированный тон, как в успешном фоновом тесте. Это диагностический вариант.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Text(audio.title).lineLimit(2)
