@@ -19,18 +19,20 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.6 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.7 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
                     Picker("Воспроизведение", selection: $audio.playbackMode) {
                         ForEach(PlaybackMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.disabled(audio.isPlaying || audio.isImporting)
-                    Text(audio.useCombinedPlayback
+                    Text(audio.playbackMode == .planned
+                         ? "Весь рисунок рассчитывается и запускается до сворачивания приложения. Музыка идёт непрерывно. Настройки выбирай до Играть; для изменения нажми Стоп."
+                         : audio.useCombinedPlayback
                          ? "Предыдущий опыт с секундными участками музыки. Оставлен для сравнения."
                          : "Музыка проигрывается непрерывно, без нарезки. Настройки частот и силы применяются сразу. Фоновую вибрацию нового варианта ещё проверяем.")
                         .font(.caption).foregroundStyle(.secondary)
-                    if audio.playbackMode == .liveShared {
+                    if audio.playbackMode == .liveShared || audio.playbackMode == .planned {
                         Picker("Аудиоэлемент для проверки фона", selection: $audio.supportAudioLevel) {
                             Text("Нулевая громкость").tag(0.0)
                             Text("Минимальная громкость").tag(0.00001)
@@ -65,22 +67,25 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(0..<2, id: \.self) { index in
                         bandControls(index)
-                    }
+                    }.disabled(audio.isPlaying && audio.playbackMode == .planned)
                 }
                 Section("Вибрация") {
                     Toggle("Вибрация под музыку", isOn: $audio.settings.hapticsEnabled)
                     Picker("Режим", selection: $audio.settings.mode) {
                         Text("Удары").tag("beats")
                         Text("Энергия баса").tag("continuous")
-                    }.pickerStyle(.segmented)
+                    }.pickerStyle(.segmented).disabled(audio.isPlaying && audio.playbackMode == .planned)
                     valueSlider("Сила", value: $audio.settings.intensity, range: 0...1, step: 0.01,
                                 display: "\(Int(audio.settings.intensity * 100)) %")
+                        .disabled(audio.isPlaying && audio.playbackMode == .planned)
                     valueSlider("Порог реакции", value: $audio.settings.thresholdDB, range: -60 ... -5, step: 1,
                                 display: "\(Int(audio.settings.thresholdDB)) dBFS")
+                        .disabled(audio.isPlaying && audio.playbackMode == .planned)
                     Text("Чем ниже порог, тем тише бас, на который будет реакция. Например, −45 чувствительнее, чем −25.")
                         .font(.caption).foregroundStyle(.secondary)
                     valueSlider("Резкость", value: $audio.settings.sharpness, range: 0...1, step: 0.01,
                                 display: "\(Int(audio.settings.sharpness * 100)) %")
+                        .disabled(audio.isPlaying && audio.playbackMode == .planned)
                     ProgressView(value: audio.drive).tint(.orange)
                         .accessibilityLabel("Энергия для вибрации")
                 }
@@ -90,6 +95,7 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     valueSlider("Поправка вибрации", value: $audio.settings.delayMS, range: -250...500, step: 10,
                                 display: "\(Int(audio.settings.delayMS)) мс")
+                        .disabled(audio.isPlaying && audio.playbackMode == .planned)
                     Text("Плюс — вибрация позже, минус — раньше. Новый режим использует общую шкалу времени музыки и вибрации; поправку Bluetooth подбираем на слух и по ощущениям.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -99,7 +105,7 @@ struct ContentView: View {
                     }.disabled(audio.probeRunning)
                     Button(audio.probeRunning ? "Тест выполняется…" : "Тест выбранного способа (12 с)") {
                         audio.startBackgroundProbe()
-                    }.disabled(!audio.isPlaying || audio.probeRunning || audio.useCombinedPlayback)
+                    }.disabled(!audio.isPlaying || audio.probeRunning || audio.useCombinedPlayback || audio.playbackMode == .planned)
                     Text("Запусти песню, выбери способ, нажми тест и выйди на главный экран на 6 секунд. Для блокировки повтори отдельно. Во время теста обычная реакция на музыку приостановлена.")
                         .font(.caption).foregroundStyle(.secondary)
                     Text(audio.probeMode == .systemSound
@@ -122,6 +128,7 @@ struct ContentView: View {
                         Label("Поделиться диагностикой", systemImage: "square.and.arrow.up")
                     }
                     Button("Сбросить настройки") { audio.resetSettings() }
+                        .disabled(audio.isPlaying && audio.playbackMode == .planned)
                 }
             }
             .navigationTitle("BassPulse")

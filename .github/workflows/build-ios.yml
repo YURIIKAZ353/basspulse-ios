@@ -47,6 +47,10 @@ jobs:
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee build/xcodebuild.log
+      - name: Test complete preplanned track patterns
+        run: |
+          swiftc Sources/DSP.swift Sources/TrackPlan.swift Sources/PlannedPatternBuilder.swift Sources/PrototypeError.swift Tests/TrackPlan/main.swift -o build/track-plan-tests-bin
+          build/track-plan-tests-bin
       - name: Package IPA for AltStore signing
         run: |
           mkdir -p build/package/Payload

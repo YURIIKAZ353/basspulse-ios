@@ -34,6 +34,7 @@ final class AudioController: ObservableObject {
         didSet {
             activeAnalysis?.configure(settings)
             combined.updateSettings(settings)
+            planned.setEnabled(settings.hapticsEnabled)
             if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "settings.v1") }
             // Do not retain haptic commands calculated using older settings.
             settingsRevision += 1
@@ -53,14 +54,15 @@ final class AudioController: ObservableObject {
     @Published private(set) var fileInfo = ""
     @Published private(set) var probeRunning = false
     @Published var probeMode: HapticProbeMode = .sharedSilent
-    @Published var playbackMode: PlaybackMode = .liveShared
-    @Published var supportAudioLevel: Double = 0
+    @Published var playbackMode: PlaybackMode = .planned
+    @Published var supportAudioLevel: Double = 0.03
     var useCombinedPlayback: Bool { playbackMode == .combined }
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
     private let haptics = HapticOutput()
     private let combined = CombinedPlayback()
+    private let planned = PlannedTrackPlayback()
     private let diagnostics = RuntimeDiagnostics()
     private var audioEngine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
@@ -101,6 +103,25 @@ final class AudioController: ObservableObject {
             self.lastFailure = failure
             self.errorMessage = failure
             self.status = "Совместное воспроизведение остановлено из-за ошибки"
+        }
+        planned.onStatus = { [weak self] message in
+            self?.status = message
+            if message.hasPrefix("Играет") { self?.hapticStatus = "Core Haptics: весь рисунок запущен заранее" }
+        }
+        planned.onEvent = { [weak diagnostics] message in diagnostics?.record(message) }
+        planned.onFormat = { [weak self] format in self?.audioFormatInfo = format }
+        planned.onMeter = { [weak self] value in
+            self?.levels = value.bandDB
+            self?.drive = value.level
+            self?.diagnostics.increment(1)
+        }
+        planned.onFinish = { [weak self] in self?.stop(); self?.status = "Воспроизведение завершено" }
+        planned.onError = { [weak self] error in
+            guard let self else { return }
+            let failure = self.describe(error, stage: "рисунок на всю песню")
+            self.stop()
+            self.lastFailure = failure
+            self.errorMessage = failure
         }
         let nc = NotificationCenter.default
         for (notification, phase) in [
@@ -207,6 +228,7 @@ final class AudioController: ObservableObject {
     func play() {
         guard !isImporting else { return }
         guard let selectedURL else { errorMessage = "Сначала выбери аудиофайл или встроенный тест."; return }
+        if playbackMode == .planned { playPlanned(url: selectedURL); return }
         if useCombinedPlayback { playCombined(url: selectedURL); return }
         stop(deactivateSession: false)
         audioFormatInfo = ""
@@ -325,6 +347,7 @@ final class AudioController: ObservableObject {
         watchdog = nil
         haptics.stop()
         combined.stop()
+        planned.stop()
         player?.stop()
         audioEngine?.mainMixerNode.removeTap(onBus: 0)
         audioEngine?.stop()
@@ -365,7 +388,7 @@ final class AudioController: ObservableObject {
 
     func startBackgroundProbe() {
         guard isPlaying, !probeRunning else { return }
-        guard !useCombinedPlayback else {
+        guard !useCombinedPlayback, playbackMode != .planned else {
             errorMessage = "Отдельные тесты доступны в прежнем режиме. Нажми Стоп и выключи совместное воспроизведение."
             return
         }
@@ -390,7 +413,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.6 (7)
+        BassPulse 0.1.7 (8)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -402,7 +425,7 @@ final class AudioController: ObservableObject {
         Last error: \(lastFailure)
         Selected probe: \(probeMode.rawValue)
         Playback mode: \(playbackMode.rawValue); support audio level: \(supportAudioLevel)
-        Playback backend: \(useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
+        Playback backend: \(playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
         Runtime:
         \(diagnostics.report())
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
@@ -437,6 +460,28 @@ final class AudioController: ObservableObject {
             hapticStatus = "Core Haptics: настоящая музыка + реакция на частоты"
         } catch {
             let failure = describe(error, stage: "запуск совместного воспроизведения")
+            stop()
+            lastFailure = failure
+            errorMessage = failure
+        }
+    }
+
+    private func playPlanned(url: URL) {
+        stop(deactivateSession: false)
+        audioFormatInfo = ""
+        lastFailure = ""
+        fileInfo = ImportedAudioStore.fileSummary(url)
+        do {
+            guard FileManager.default.fileExists(atPath: url.path) else { throw PrototypeError.preparedFileMissing }
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default)
+            try session.setActive(true)
+            updateRoute()
+            isPlaying = true
+            planned.start(url: url, settings: settings, supportLevel: Float(supportAudioLevel))
+            hapticStatus = "Подготовка полного рисунка перед воспроизведением"
+        } catch {
+            let failure = describe(error, stage: "подготовка полного рисунка")
             stop()
             lastFailure = failure
             errorMessage = failure
