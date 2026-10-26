@@ -4,7 +4,6 @@
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <mach/mach.h>
-#import <mach/mach_vm.h>
 
 static NSDictionary *label(const void *address) {
     Dl_info info = {0};
@@ -17,9 +16,9 @@ static NSDictionary *label(const void *address) {
 static NSDictionary *dumpCode(const void *address) {
     if (!address) return @{};
     uint8_t bytes[2048] = {0};
-    mach_vm_size_t readSize = 0;
-    kern_return_t status = mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)address,
-                                                 sizeof(bytes), (mach_vm_address_t)bytes, &readSize);
+    vm_size_t readSize = 0;
+    kern_return_t status = vm_read_overwrite(mach_task_self(), (vm_address_t)address,
+                                            sizeof(bytes), (vm_address_t)bytes, &readSize);
     if (status != KERN_SUCCESS) return @{ @"readError": @(status) };
     NSMutableArray *branches = [NSMutableArray array];
     for (NSUInteger offset = 0; offset + 4 <= readSize; offset += 4) {

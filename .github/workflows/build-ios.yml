@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore: ['Research/**', '.github/workflows/inspect-haptic-runtime.yml']
 permissions:
   contents: read
 concurrency:
