@@ -52,8 +52,10 @@ final class AudioController: ObservableObject {
     @Published private(set) var audioFormatInfo = ""
     @Published private(set) var fileInfo = ""
     @Published private(set) var probeRunning = false
-    @Published var probeMode: HapticProbeMode = .sharedAudio
-    @Published var useCombinedPlayback = true
+    @Published var probeMode: HapticProbeMode = .sharedSilent
+    @Published var playbackMode: PlaybackMode = .liveShared
+    @Published var audibleSupportTone = false
+    var useCombinedPlayback: Bool { playbackMode == .combined }
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
@@ -263,7 +265,7 @@ final class AudioController: ObservableObject {
             stage = "запуск AVAudioEngine"
             try engine.start()
             // A haptic error must not prevent audio playback or the meters.
-            do { try haptics.prepare() }
+            do { try prepareLiveHaptics() }
             catch { hapticStatus = "Core Haptics: \(error.localizedDescription)" }
             isPlaying = true
             lastAnalysis = Date()
@@ -376,7 +378,7 @@ final class AudioController: ObservableObject {
                 self.haptics.endProbe()
                 self.haptics.stop()
                 if self.isPlaying {
-                    do { try self.haptics.prepare() }
+                    do { try self.prepareLiveHaptics() }
                     catch { self.hapticStatus = "Возврат к обычной вибрации: \(error.localizedDescription)" }
                 }
             }
@@ -388,7 +390,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.5 (6)
+        BassPulse 0.1.6 (7)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -399,7 +401,8 @@ final class AudioController: ObservableObject {
         File: \(fileInfo)
         Last error: \(lastFailure)
         Selected probe: \(probeMode.rawValue)
-        Playback backend: \(useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : "legacy AVAudioEngine + live haptic commands")
+        Playback mode: \(playbackMode.rawValue); audible support tone: \(audibleSupportTone)
+        Playback backend: \(useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
         Runtime:
         \(diagnostics.report())
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
@@ -410,6 +413,12 @@ final class AudioController: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         route = session.currentRoute.outputs.map { $0.portName }.joined(separator: ", ")
         latencyMS = Int(session.outputLatency * 1000)
+    }
+
+    private func prepareLiveHaptics() throws {
+        if playbackMode == .liveShared {
+            try haptics.prepareReactive(audioLevel: audibleSupportTone ? 0.03 : 0)
+        } else { try haptics.prepare() }
     }
 
     private func playCombined(url: URL) {

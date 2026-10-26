@@ -19,16 +19,25 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.5 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.6 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
-                    Toggle("Музыка и вибрация в одном движке", isOn: $audio.useCombinedPlayback)
-                        .disabled(audio.isPlaying || audio.isImporting)
+                    Picker("Воспроизведение", selection: $audio.playbackMode) {
+                        ForEach(PlaybackMode.allCases) { mode in Text(mode.title).tag(mode) }
+                    }.disabled(audio.isPlaying || audio.isImporting)
                     Text(audio.useCombinedPlayback
-                         ? "Новый режим для проверки фона: воспроизводится сама песня вместе с рассчитанной вибрацией. Без тестового тона. Частоты, сила и резкость применяются примерно в течение 3 секунд; выключение вибрации — сразу."
-                         : "Прежний проигрыватель для сравнения. Его вибрация в фоне на твоём iPhone не работала.")
+                         ? "Предыдущий опыт с секундными участками музыки. Оставлен для сравнения."
+                         : "Музыка проигрывается непрерывно, без нарезки. Настройки частот и силы применяются сразу. Фоновую вибрацию нового варианта ещё проверяем.")
                         .font(.caption).foregroundStyle(.secondary)
+                    if audio.playbackMode == .liveShared {
+                        Toggle("Тихий тестовый тон для сравнения", isOn: $audio.audibleSupportTone)
+                            .disabled(audio.isPlaying || audio.isImporting)
+                        Text(audio.audibleSupportTone
+                             ? "Добавлен синтезированный тон, как в успешном фоновом тесте. Это диагностический вариант."
+                             : "Синтезированный аудиоэлемент имеет нулевую громкость. Проверяем, сохранит ли он фоновую вибрацию без слышимого тона.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Text(audio.title).lineLimit(2)
                     Button { importing = true } label: { Label("Выбрать аудио из Файлов", systemImage: "folder") }
                         .disabled(audio.isPlaying || audio.isImporting)
@@ -90,6 +99,8 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Text(audio.probeMode == .systemSound
                          ? "System Sound: 6 стандартных вибраций с интервалом 2 секунды. Сила системная, ползунок её не меняет. Проверяем только доступность этого пути в фоне."
+                         : audio.probeMode == .sharedSilent
+                         ? "12 импульсов и синтезированный аудиоэлемент с нулевой громкостью. Сравниваем с успешным тестом с тихим тоном."
                          : audio.probeMode.includesTone
                          ? "12 импульсов и тихий тестовый тон. Звук и вибрацию создаёт один движок Core Haptics. Это эксперимент, фоновая работа не подтверждена."
                          : "Исходный режим: 12 импульсов Core Haptics без тестового тона.")

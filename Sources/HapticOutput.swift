@@ -10,6 +10,8 @@ final class HapticOutput {
     private var lastMode = ""
     private var probe: CHHapticAdvancedPatternPlayer?
     private var probeToken: UUID?
+    private var supportPlayer: CHHapticAdvancedPatternPlayer?
+    private var reactiveAudioLevel: Float?
     var status: (String) -> Void = { _ in }
     var event: (String) -> Void = { _ in }
     var probeState: (Bool) -> Void = { _ in }
@@ -64,21 +66,36 @@ final class HapticOutput {
                         CHHapticEventParameter(parameterID: .hapticIntensity, value: strength),
                         CHHapticEventParameter(parameterID: .hapticSharpness, value: Float(settings.sharpness))
                     ], relativeTime: 0)
-                    let pattern = try CHHapticPattern(events: [event], parameters: [])
+                    var events = [event]
+                    if let volume = reactiveAudioLevel {
+                        events.append(CHHapticEvent(eventType: .audioContinuous, parameters: [
+                            CHHapticEventParameter(parameterID: .audioVolume, value: volume),
+                            CHHapticEventParameter(parameterID: .audioPitch, value: -1)
+                        ], relativeTime: 0, duration: 0.08))
+                    }
+                    let pattern = try CHHapticPattern(events: events, parameters: [])
                     let player = try engine.makePlayer(with: pattern)
                     try player.start(atTime: CHHapticTimeImmediate)
                     sent = true
                 }
             } else {
                 if continuous == nil {
+                    let duration: TimeInterval = reactiveAudioLevel == nil ? 1 : 30
                     let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
                         CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
                         CHHapticEventParameter(parameterID: .hapticSharpness, value: Float(settings.sharpness))
-                    ], relativeTime: 0, duration: 1)
-                    let pattern = try CHHapticPattern(events: [event], parameters: [])
+                    ], relativeTime: 0, duration: duration)
+                    var events = [event]
+                    if let volume = reactiveAudioLevel {
+                        events.append(CHHapticEvent(eventType: .audioContinuous, parameters: [
+                            CHHapticEventParameter(parameterID: .audioVolume, value: volume),
+                            CHHapticEventParameter(parameterID: .audioPitch, value: -1)
+                        ], relativeTime: 0, duration: duration))
+                    }
+                    let pattern = try CHHapticPattern(events: events, parameters: [])
                     let player = try engine.makeAdvancedPlayer(with: pattern)
                     player.loopEnabled = true
-                    player.loopEnd = 1
+                    player.loopEnd = duration
                     // Keep the first frame muted until its dynamic level is set.
                     player.isMuted = true
                     try player.start(atTime: CHHapticTimeImmediate)
@@ -100,6 +117,25 @@ final class HapticOutput {
             status("Ошибка вибрации: \(error.localizedDescription). Нажми Стоп → Играть.")
             return false
         }
+    }
+
+    func prepareReactive(audioLevel: Float) throws {
+        try prepare(profile: audioLevel == 0 ? .sharedSilent : .sharedAudio)
+        reactiveAudioLevel = audioLevel
+        guard let engine else { throw PrototypeError.hapticsUnavailable }
+        let audio = CHHapticEvent(eventType: .audioContinuous, parameters: [
+            CHHapticEventParameter(parameterID: .audioVolume, value: audioLevel),
+            CHHapticEventParameter(parameterID: .audioPitch, value: -1)
+        ], relativeTime: 0, duration: 30)
+        let pattern = try CHHapticPattern(events: [audio], parameters: [])
+        let player = try engine.makeAdvancedPlayer(with: pattern)
+        player.loopEnabled = true
+        player.loopEnd = 30
+        try player.start(atTime: CHHapticTimeImmediate)
+        supportPlayer = player
+        event("reactive audioContinuous path started; audioVolume=\(audioLevel); live music stays in AVAudioEngine")
+        status(audioLevel == 0 ? "Общая аудиосессия: аудиоэлемент без звука + живая вибрация"
+                             : "Общая аудиосессия: тихий тестовый тон + живая вибрация")
     }
 
     func startProbe(strength: Float, mode: HapticProbeMode) throws {
@@ -130,7 +166,7 @@ final class HapticOutput {
             // A real, explicitly disclosed sound in this engine tests the
             // combined audio/haptics path. This is not a silent keep-alive.
             events.append(CHHapticEvent(eventType: .audioContinuous, parameters: [
-                CHHapticEventParameter(parameterID: .audioVolume, value: 0.03),
+                CHHapticEventParameter(parameterID: .audioVolume, value: mode.audioEventVolume),
                 CHHapticEventParameter(parameterID: .audioPitch, value: -1)
             ], relativeTime: 0, duration: 12))
         }
@@ -144,7 +180,7 @@ final class HapticOutput {
         do { try player.start(atTime: CHHapticTimeImmediate) }
         catch { probe = nil; probeToken = nil; throw error }
         probeState(true)
-        event("preplanned 12-second probe submitted; mode=\(mode.rawValue); testTone=\(mode.includesTone)")
+        event("preplanned 12-second probe submitted; mode=\(mode.rawValue); audioEvent=\(mode.includesTone); audioVolume=\(mode.audioEventVolume)")
     }
 
     func endProbe() {
@@ -159,6 +195,9 @@ final class HapticOutput {
         if probeToken != nil || probe != nil { endProbe() }
         try? continuous?.stop(atTime: CHHapticTimeImmediate)
         continuous = nil
+        try? supportPlayer?.stop(atTime: CHHapticTimeImmediate)
+        supportPlayer = nil
+        reactiveAudioLevel = nil
         ready = false
         // stop is asynchronous. A subsequent prepare must not restart this same
         // engine while its previous stop is still pending.
