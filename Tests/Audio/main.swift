@@ -1,5 +1,8 @@
 import AVFoundation
 import Foundation
+import Darwin
+
+setbuf(stdout, nil)
 
 func check(_ condition: @autoclosure () -> Bool, _ message: String) {
     if !condition() { fatalError(message) }
@@ -19,10 +22,16 @@ for i in 0..<44100 {
     samples.floatChannelData![1][i] = -tone
 }
 func makeWave() throws {
-    let file = try AVAudioFile(forWriting: wave, settings: format.settings)
+    let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 44100.0, AVNumberOfChannelsKey: 2,
+        AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false]
+    let file = try AVAudioFile(forWriting: wave, settings: settings)
     try file.write(from: samples)
 }
+print("Creating WAV fixture")
 try makeWave()
+print("Creating AAC fixture")
 let convert = Process()
 convert.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
 convert.arguments = ["-f", "m4af", "-d", "aac", wave.path, m4a.path]
@@ -31,6 +40,7 @@ convert.waitUntilExit()
 check(convert.terminationStatus == 0, "AAC fixture generation failed")
 
 for input in [wave, m4a] {
+    print("Importing \(input.lastPathComponent)")
     let converted = try PCMImporter.decode(input, directory: root)
     let file = try AVAudioFile(forReading: converted)
     check(file.fileFormat.streamDescription.pointee.mFormatID == kAudioFormatLinearPCM,

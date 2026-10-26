@@ -26,14 +26,20 @@ enum PCMImporter {
 
     private static func write(_ source: AVAudioFile, to destination: URL) throws {
         let format = source.processingFormat
-        let output = try AVAudioFile(forWriting: destination, settings: format.settings,
+        var diskSettings = format.settings
+        // PCM files store interleaved samples even though render buffers use
+        // separate channel planes. Let AVAudioFile perform this conversion.
+        diskSettings[AVLinearPCMIsNonInterleaved] = false
+        let output = try AVAudioFile(forWriting: destination, settings: diskSettings,
                                      commonFormat: .pcmFormatFloat32, interleaved: false)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16384) else {
             throw PrototypeError.emptyFile
         }
         var total: AVAudioFramePosition = 0
-        while true {
-            try source.read(into: buffer)
+        while source.framePosition < source.length {
+            let remaining = source.length - source.framePosition
+            let count = AVAudioFrameCount(min(AVAudioFramePosition(buffer.frameCapacity), remaining))
+            try source.read(into: buffer, frameCount: count)
             if buffer.frameLength == 0 { break }
             try output.write(from: buffer)
             total += AVAudioFramePosition(buffer.frameLength)
