@@ -38,6 +38,7 @@ final class AudioController: ObservableObject {
     }
     @Published private(set) var title = "Файл не выбран"
     @Published private(set) var isPlaying = false
+    @Published private(set) var isImporting = false
     @Published private(set) var levels: [Double] = [-100, -100]
     @Published private(set) var drive = 0.0
     @Published private(set) var status = "Готов к тесту"
@@ -97,29 +98,37 @@ final class AudioController: ObservableObject {
     }
 
     func importFile(_ source: URL) {
+        guard !isImporting else { return }
         stop()
         let access = source.startAccessingSecurityScopedResource()
-        defer { if access { source.stopAccessingSecurityScopedResource() } }
-        do {
-            let file = try AVAudioFile(forReading: source)
-            guard file.length > 0 else { throw PrototypeError.emptyFile }
-            let folder = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                      appropriateFor: nil, create: true)
-                .appendingPathComponent("Imported", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let destination = folder.appendingPathComponent(UUID().uuidString).appendingPathExtension(source.pathExtension)
-            try FileManager.default.copyItem(at: source, to: destination)
-            // Keep one private copy; old selected files are no longer needed.
-            for old in try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) where old != destination {
-                try? FileManager.default.removeItem(at: old)
+        isImporting = true
+        status = "Преобразую файл в PCM. Это может занять некоторое время…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            defer { if access { source.stopAccessingSecurityScopedResource() } }
+            let result = Result { try PCMImporter.decode(source) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isImporting = false
+                switch result {
+                case .success(let destination):
+                    self.selectedURL = destination
+                    self.title = source.lastPathComponent
+                    self.status = "Файл преобразован в PCM. Нажми Играть."
+                    let folder = destination.deletingLastPathComponent()
+                    if let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) {
+                        for old in files where old != destination { try? FileManager.default.removeItem(at: old) }
+                    }
+                case .failure(let error):
+                    self.status = "Не удалось декодировать выбранный файл"
+                    self.lastFailure = self.describe(error, stage: "импорт и декодирование файла в PCM")
+                    self.errorMessage = self.lastFailure
+                }
             }
-            selectedURL = destination
-            title = source.lastPathComponent
-            status = "Файл загружен. Нажми Играть."
-        } catch { errorMessage = "Не удалось открыть аудио: \(error.localizedDescription)" }
+        }
     }
 
     func loadDemo() {
+        guard !isImporting else { return }
         stop()
         do {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("BassPulse-demo.caf")
@@ -147,6 +156,7 @@ final class AudioController: ObservableObject {
     }
 
     func play() {
+        guard !isImporting else { return }
         guard let selectedURL else { errorMessage = "Сначала выбери аудиофайл или встроенный тест."; return }
         stop(deactivateSession: false)
         var stage = "настройка аудиосессии"
@@ -269,7 +279,7 @@ final class AudioController: ObservableObject {
     }
 
     func testHaptics() {
-        guard !isPlaying else { return }
+        guard !isPlaying, !isImporting else { return }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -327,13 +337,3 @@ final class AudioController: ObservableObject {
     }
 }
 
-enum PrototypeError: LocalizedError {
-    case emptyFile
-    case unavailableOutput
-    var errorDescription: String? {
-        switch self {
-        case .emptyFile: return "Файл пуст или не содержит доступного аудио."
-        case .unavailableOutput: return "iOS ещё не предоставила аудиовыход. Выбери наушники в Пункте управления и повтори запуск."
-        }
-    }
-}

@@ -25,17 +25,19 @@ struct ContentView: View {
                 Section("Источник") {
                     Text(audio.title).lineLimit(2)
                     Button { importing = true } label: { Label("Выбрать аудио из Файлов", systemImage: "folder") }
-                        .disabled(audio.isPlaying)
+                        .disabled(audio.isPlaying || audio.isImporting)
                     Button { audio.loadDemo() } label: { Label("Загрузить тест 60 → 140 Гц", systemImage: "waveform") }
-                        .disabled(audio.isPlaying)
+                        .disabled(audio.isPlaying || audio.isImporting)
                     HStack {
                         Button {
                             if audio.isPlaying { audio.stop() } else { audio.play() }
                         } label: { Label(audio.isPlaying ? "Стоп" : "Играть", systemImage: audio.isPlaying ? "stop.fill" : "play.fill") }
                         .buttonStyle(.borderedProminent)
+                        .disabled(audio.isImporting)
                         Spacer()
-                        Button("Тест вибрации") { audio.testHaptics() }.disabled(audio.isPlaying)
+                        Button("Тест вибрации") { audio.testHaptics() }.disabled(audio.isPlaying || audio.isImporting)
                     }
+                    if audio.isImporting { ProgressView("Подготовка аудиофайла…") }
                     Text(audio.status).font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Частоты реакции") {
