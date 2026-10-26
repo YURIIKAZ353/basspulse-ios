@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreHaptics
 import Darwin
+import UIKit
 
 final class PlannedTrackPlayback {
     var onStatus: (String) -> Void = { _ in }
@@ -47,6 +48,7 @@ final class PlannedTrackPlayback {
     }
 
     private func begin(plan: TrackPlan, url: URL, supportLevel: Float, session: UUID) throws {
+        guard UIApplication.shared.applicationState == .active else { throw PrototypeError.mustStartInForeground }
         guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { throw PrototypeError.hapticsUnavailable }
         let file = try AVAudioFile(forReading: url)
         let audio = AVAudioEngine()

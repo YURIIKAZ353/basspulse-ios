@@ -7,6 +7,7 @@ enum PrototypeError: LocalizedError {
     case hapticsUnavailable
     case tooManyChannels
     case combinedStopped(Int)
+    case mustStartInForeground
     var errorDescription: String? {
         switch self {
         case .emptyFile: return "Файл пуст или не содержит доступного аудио."
@@ -15,6 +16,7 @@ enum PrototypeError: LocalizedError {
         case .hapticsUnavailable: return "Движок тактильной отдачи не запущен."
         case .tooManyChannels: return "Для совместного воспроизведения пока поддерживаются моно и стерео."
         case .combinedStopped(let reason): return "Совместный движок остановлен системой (причина \(reason)). Нажми Играть для повторного запуска."
+        case .mustStartInForeground: return "Для этой проверки дождись подготовки и начала музыки с открытым приложением. Затем можно сворачивать его или блокировать экран."
         }
     }
 }
