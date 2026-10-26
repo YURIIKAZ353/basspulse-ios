@@ -69,8 +69,8 @@ do {
 // alias reproduces this class of identity mismatch on the macOS runner.
 let library = root.appendingPathComponent("library with spaces", isDirectory: true)
 try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
-let alias = root.appendingPathComponent("library-alias", isDirectory: true)
-try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: library)
+let alias = root.appendingPathComponent("library-alias")
+try FileManager.default.createSymbolicLink(atPath: alias.path, withDestinationPath: library.path)
 let first = try PCMImporter.decode(wave, directory: library)
 let firstFrameCount = try AVAudioFile(forReading: first).length
 let enumerated = try FileManager.default.contentsOfDirectory(at: alias, includingPropertiesForKeys: nil)
