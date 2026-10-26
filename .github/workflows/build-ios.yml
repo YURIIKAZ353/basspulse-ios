@@ -10,24 +10,16 @@ concurrency:
   group: basspulse-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  build:
+  tests:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Toolchain
-        run: |
-          xcodebuild -version
-          swift --version
-      - name: Test actual frequency detector
+      - name: Test DSP, envelope and preference migration
         run: |
           mkdir -p build
           swiftc Sources/DSP.swift Tests/main.swift -o build/dsp-tests
           build/dsp-tests
-      - name: Install project generator
-        run: brew install xcodegen
-      - name: Test bass and beat envelope mixing and settings migration
-        run: |
           swiftc Sources/DSP.swift Sources/BassBlendEnvelope.swift Tests/Envelope/main.swift -o build/envelope-tests
           build/envelope-tests
       - name: Test runtime diagnostics
@@ -38,12 +30,31 @@ jobs:
         run: |
           swiftc Sources/PCMImporter.swift Sources/ImportedAudioStore.swift Sources/PrototypeError.swift Tests/Audio/main.swift -o build/import-tests-bin
           build/import-tests-bin
-      - name: Generate Xcode project
-        run: xcodegen generate
-      - name: Test actual music chunk preparation
+      - name: Test actual captured PCM decoding
+        run: |
+          swiftc Sources/CapturedPCMDecoder.swift Tests/Capture/main.swift -o build/capture-tests
+          build/capture-tests
+      - name: Test chunk and track plan preparation
         run: |
           swiftc Sources/DSP.swift Sources/AudioChunkReader.swift Sources/PrototypeError.swift Tests/Chunks/main.swift -o build/chunk-tests-bin
           build/chunk-tests-bin
+          swiftc Sources/DSP.swift Sources/TrackPlan.swift Sources/PlannedPatternBuilder.swift Sources/PrototypeError.swift Tests/TrackPlan/main.swift -o build/track-plan-tests-bin
+          build/track-plan-tests-bin
+  build:
+    needs: tests
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          mkdir -p build
+          xcodebuild -version
+          swift --version
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
       - name: Build for physical iPhone without signing
         run: |
           set -o pipefail
@@ -52,10 +63,6 @@ jobs:
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee build/xcodebuild.log
-      - name: Test complete preplanned track patterns
-        run: |
-          swiftc Sources/DSP.swift Sources/TrackPlan.swift Sources/PlannedPatternBuilder.swift Sources/PrototypeError.swift Tests/TrackPlan/main.swift -o build/track-plan-tests-bin
-          build/track-plan-tests-bin
       - name: Package IPA for AltStore signing
         run: |
           mkdir -p build/package/Payload

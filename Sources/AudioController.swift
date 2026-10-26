@@ -42,6 +42,8 @@ final class AudioController: ObservableObject {
     }
     @Published private(set) var title = "Файл не выбран"
     @Published private(set) var isPlaying = false
+    @Published private(set) var isCapturingExternal = false
+    @Published private(set) var captureInfo = ""
     @Published private(set) var isImporting = false
     @Published private(set) var levels: [Double] = [-100, -100]
     @Published private(set) var drive = 0.0
@@ -61,6 +63,7 @@ final class AudioController: ObservableObject {
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
+    private var externalCapture: AudioCaptureSource?
     private let haptics = HapticOutput()
     private let combined = CombinedPlayback()
     private let planned = PlannedTrackPlayback()
@@ -318,6 +321,84 @@ final class AudioController: ObservableObject {
         }
     }
 
+    func startExternalCapture() {
+        guard !isPlaying, !isImporting else { return }
+        guard #available(iOS 27.0, *) else {
+            errorMessage = "Для захвата звука других приложений нужна iOS 27 или новее."
+            return
+        }
+        stop(deactivateSession: false)
+        playbackMode = .systemContinuous
+        lastFailure = ""
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+            try prepareLiveHaptics()
+            updateRoute()
+            let token = generation
+            let analysis = AnalysisBridge()
+            analysis.diagnostics = diagnostics
+            analysis.configure(settings)
+            activeAnalysis = analysis
+            let capture = SystemAudioCapture()
+            capture.onEvent = { [weak diagnostics] message in diagnostics?.record(message) }
+            capture.onPCM = { [weak self] buffer, time in
+                guard let result = analysis.process(buffer) else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.generation == token, self.isCapturingExternal else { return }
+                    self.receive(result, renderedAt: time, token: token)
+                }
+            }
+            capture.onSignal = { [weak self] message in
+                guard let self, self.generation == token else { return }
+                self.captureInfo = message
+            }
+            capture.onStarted = { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.status = "Слушаю системный звук. Открой приложение с музыкой или видео."
+                self.audioFormatInfo = "Захват других приложений: 48 кГц, стерео; формат буферов проверяется при получении"
+            }
+            capture.onCancelled = { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.stop()
+                self.status = "Выбор источника отменён"
+            }
+            capture.onError = { [weak self] error in
+                guard let self, self.generation == token else { return }
+                let detail = self.describe(error, stage: "захват системного звука")
+                self.diagnostics.record("System capture stopped/error: \(error as NSError)")
+                self.stop()
+                self.lastFailure = detail
+                self.status = "Захват остановлен: \(error.localizedDescription)"
+                self.errorMessage = detail
+            }
+            externalCapture = capture
+            isCapturingExternal = true
+            isPlaying = true
+            lastAnalysis = .distantPast
+            maximumDeliveryTime = 0
+            captureInfo = "Выбери весь экран для перехода между приложениями"
+            status = "Ожидаю выбор источника в системном окне"
+            capture.start()
+            watchdog = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                guard let self, self.generation == token, self.isCapturingExternal else { return }
+                if Date().timeIntervalSince(self.lastAnalysis) > 0.5 {
+                    // Pauses or capture gaps must not leave a sustained motor level.
+                    self.drive = 0
+                    self.levels = [-100, -100]
+                    self.haptics.apply(level: 0, beat: false, settings: self.settings)
+                }
+            }
+        } catch {
+            let detail = describe(error, stage: "подготовка захвата и фоновой вибрации")
+            diagnostics.record("Capture preparation error: \(error as NSError)")
+            stop()
+            lastFailure = detail
+            errorMessage = detail
+        }
+    }
+
     private func receive(_ result: Detection, renderedAt: TimeInterval, token: UUID) {
         diagnostics.increment(1)
         lastAnalysis = Date()
@@ -347,6 +428,9 @@ final class AudioController: ObservableObject {
     func stop(deactivateSession: Bool = true) {
         generation = UUID() // Invalidates completion callbacks and delayed haptics.
         isPlaying = false
+        isCapturingExternal = false
+        externalCapture?.stop()
+        externalCapture = nil
         pending = 0
         watchdog?.invalidate()
         watchdog = nil
@@ -418,7 +502,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.11 (12)
+        BassPulse 0.1.12 (13)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -433,6 +517,7 @@ final class AudioController: ObservableObject {
         System Pulse: \(playbackMode.usesSystemPulse); blend=\(playbackMode == .bassBlend); API calls do not prove physical vibration
         Persistent SystemSound category player: \(playbackMode == .systemContinuous); see factory actualCategory and dynamic update events
         Background capability request enabled: \(requestBackgroundHaptics)
+        External capture: \(isCapturingExternal); \(captureInfo)
         Playback backend: \(playbackMode == .systemContinuous ? "AVAudioEngine music + SystemSound-category Core Haptics; ONE continuous player + dynamic parameters, no repeated short starts" : playbackMode.usesSystemPulse ? "continuous AVAudioEngine + live DSP + AudioToolbox pulses; no preplanned pattern and no Core Haptics engine" : playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
         Runtime:
         \(diagnostics.report())

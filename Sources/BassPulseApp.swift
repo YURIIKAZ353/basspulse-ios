@@ -19,7 +19,7 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.11 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.12 • свои файлы и захват звука других приложений через системный выбор источника.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
@@ -57,7 +57,13 @@ struct ContentView: View {
                              : "Добавлен тихий синтезированный тон, как в успешном фоновом тесте. Это диагностический вариант.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Text(audio.title).lineLimit(2)
+                    Button { audio.startExternalCapture() } label: {
+                        Label("Звук других приложений", systemImage: "apps.iphone")
+                    }.disabled(audio.isPlaying || audio.isImporting)
+                    Text("В системном окне выбери весь экран, затем включи музыку или видео в другом приложении. Микрофон не используется; запись в файл не создаётся. Доступность звука конкретного приложения и работа при блокировке проверяются отдельно.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !audio.captureInfo.isEmpty { Text(audio.captureInfo).font(.caption) }
+                    Text(audio.isCapturingExternal ? "Источник: системный аудиозахват" : audio.title).lineLimit(2)
                     Button { importing = true } label: { Label("Выбрать аудио из Файлов", systemImage: "folder") }
                         .disabled(audio.isPlaying || audio.isImporting)
                     Button { audio.loadDemo() } label: { Label("Загрузить тест 60 → 140 Гц", systemImage: "waveform") }
