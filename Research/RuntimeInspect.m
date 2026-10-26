@@ -39,12 +39,16 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         dlopen("/System/Library/Frameworks/CoreHaptics.framework/CoreHaptics", RTLD_NOW);
         dlopen("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox", RTLD_NOW);
+        dlopen("/System/Library/Frameworks/ScreenCaptureKit.framework/ScreenCaptureKit", RTLD_NOW);
+        dlopen("/System/Library/Frameworks/ReplayKit.framework/ReplayKit", RTLD_NOW);
         NSMutableDictionary *result = [NSMutableDictionary dictionary];
         result[@"os"] = NSProcessInfo.processInfo.operatingSystemVersionString;
         result[@"device"] = NSProcessInfo.processInfo.environment[@"SIMULATOR_MODEL_IDENTIFIER"] ?: @"host";
         NSMutableDictionary *classes = [NSMutableDictionary dictionary];
         NSArray *classNames = @[@"CHHapticEngine", @"AVHapticPlayer", @"AVHapticClient", @"PatternPlayer",
-                                @"AdvancedPatternPlayer", @"PatternPlayerBase", @"AVHapticPlayerChannel", @"HapticServerConfig"];
+                                @"AdvancedPatternPlayer", @"PatternPlayerBase", @"AVHapticPlayerChannel", @"HapticServerConfig",
+                                @"SCStream", @"SCStreamConfiguration", @"SCContentFilter", @"SCContentSharingPickerConfiguration",
+                                @"RPDaemonProxy", @"RPScreenRecorder", @"RPAppAudioCaptureManager"];
         for (NSString *className in classNames) {
             Class cls = NSClassFromString(className);
             if (!cls) { classes[className] = @{ @"present": @NO }; continue; }
@@ -60,7 +64,9 @@ int main(int argc, char **argv) {
                     || [lower containsString:@"options"] || [lower containsString:@"priority"]
                     || [lower containsString:@"vibepattern"] || [lower containsString:@"ringtone"]
                     || [lower containsString:@"mute"] || [lower containsString:@"capabil"]
-                    || [lower containsString:@"background"] || [lower containsString:@"serverconfig"];
+                    || [lower containsString:@"background"] || [lower containsString:@"serverconfig"]
+                    || [lower containsString:@"lock"] || [lower containsString:@"duck"]
+                    || ([className hasPrefix:@"SC"] && ([lower containsString:@"audio"] || [lower containsString:@"video"] || [lower containsString:@"capture"]));
                 if (inspect) {
                     methods[selector] = @{ @"encoding": @(method_getTypeEncoding(list[i])),
                                           @"code": dumpCode((const void *)method_getImplementation(list[i])) };
@@ -90,9 +96,27 @@ int main(int argc, char **argv) {
             }
         }
         result[@"constants"] = constants;
+        Class configClass = NSClassFromString(@"SCStreamConfiguration");
+        if (configClass) {
+            id config = [configClass new];
+            NSMutableDictionary *defaults = [NSMutableDictionary dictionary];
+            unsigned propertyCount = 0;
+            objc_property_t *properties = class_copyPropertyList(configClass, &propertyCount);
+            for (unsigned i = 0; i < propertyCount; i++) {
+                NSString *key = @(property_getName(properties[i]));
+                NSString *lower = key.lowercaseString;
+                if ([lower containsString:@"audio"] || [lower containsString:@"video"] || [lower containsString:@"capture"] || [lower containsString:@"lock"] || [lower containsString:@"duck"]) {
+                    @try { defaults[key] = [[config valueForKey:key] description] ?: @"nil"; }
+                    @catch (NSException *exception) { defaults[key] = exception.name; }
+                }
+            }
+            free(properties);
+            result[@"captureConfigurationDefaults"] = defaults;
+        }
         result[@"mediaRoutes"] = BPProbeMediaRoutes();
         NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
         printf("BPRESEARCH:%s\n", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
     }
     return 0;
 }
+
