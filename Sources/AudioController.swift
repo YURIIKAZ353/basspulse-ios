@@ -54,7 +54,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var fileInfo = ""
     @Published private(set) var probeRunning = false
     @Published var probeMode: HapticProbeMode = .sharedSilent
-    @Published var playbackMode: PlaybackMode = .planned
+    @Published var playbackMode: PlaybackMode = .systemPulse
     @Published var supportAudioLevel: Double = 0.03
     var useCombinedPlayback: Bool { playbackMode == .combined }
     @Published var errorMessage: String?
@@ -227,6 +227,7 @@ final class AudioController: ObservableObject {
 
     func play() {
         guard !isImporting else { return }
+        if playbackMode.usesSystemPulse { settings.mode = "beats" }
         guard let selectedURL else { errorMessage = "Сначала выбери аудиофайл или встроенный тест."; return }
         if playbackMode == .planned { playPlanned(url: selectedURL); return }
         if useCombinedPlayback { playCombined(url: selectedURL); return }
@@ -288,7 +289,10 @@ final class AudioController: ObservableObject {
             try engine.start()
             // A haptic error must not prevent audio playback or the meters.
             do { try prepareLiveHaptics() }
-            catch { hapticStatus = "Core Haptics: \(error.localizedDescription)" }
+            catch {
+                hapticStatus = error.localizedDescription
+                diagnostics.record("haptic preparation error: \(error as NSError)")
+            }
             isPlaying = true
             lastAnalysis = Date()
             maximumDeliveryTime = 0
@@ -367,7 +371,7 @@ final class AudioController: ObservableObject {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
-            try haptics.prepare()
+            try prepareLiveHaptics()
             var testSettings = settings
             testSettings.mode = "beats"
             testSettings.hapticsEnabled = true
@@ -413,7 +417,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.7 (8)
+        BassPulse 0.1.8 (9)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -425,7 +429,8 @@ final class AudioController: ObservableObject {
         Last error: \(lastFailure)
         Selected probe: \(probeMode.rawValue)
         Playback mode: \(playbackMode.rawValue); support audio level: \(supportAudioLevel)
-        Playback backend: \(playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
+        System Pulse: \(playbackMode.usesSystemPulse); custom=\(playbackMode == .customPulse); API calls do not prove physical vibration
+        Playback backend: \(playbackMode.usesSystemPulse ? "continuous AVAudioEngine + live DSP + AudioToolbox pulses; no preplanned pattern and no Core Haptics engine" : playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
         Runtime:
         \(diagnostics.report())
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
@@ -439,7 +444,9 @@ final class AudioController: ObservableObject {
     }
 
     private func prepareLiveHaptics() throws {
-        if playbackMode == .liveShared {
+        if playbackMode.usesSystemPulse {
+            try haptics.prepareSystemPulse(custom: playbackMode == .customPulse)
+        } else if playbackMode == .liveShared {
             try haptics.prepareReactive(audioLevel: Float(supportAudioLevel))
         } else { try haptics.prepare() }
     }

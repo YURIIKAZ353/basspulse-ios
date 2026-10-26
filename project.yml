@@ -17,8 +17,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.basspulse.prototype
         PRODUCT_NAME: BassPulse
-        MARKETING_VERSION: "0.1.7"
-        CURRENT_PROJECT_VERSION: "8"
+        MARKETING_VERSION: "0.1.8"
+        CURRENT_PROJECT_VERSION: "9"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Info.plist
     scheme:

@@ -19,14 +19,16 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.7 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.8 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
                     Picker("Воспроизведение", selection: $audio.playbackMode) {
                         ForEach(PlaybackMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.disabled(audio.isPlaying || audio.isImporting)
-                    Text(audio.playbackMode == .planned
+                    Text(audio.playbackMode.usesSystemPulse
+                         ? "Живые удары по выбранным частотам, без расчёта песни заранее. Стандартные: фиксированная системная вибрация. Сила и длительность: экспериментальные короткие импульсы 35 мс."
+                         : audio.playbackMode == .planned
                          ? "Весь рисунок рассчитывается и запускается до сворачивания приложения. Музыка идёт непрерывно. Настройки выбирай до Играть; для изменения нажми Стоп."
                          : audio.useCombinedPlayback
                          ? "Предыдущий опыт с секундными участками музыки. Оставлен для сравнения."
@@ -74,10 +76,19 @@ struct ContentView: View {
                     Picker("Режим", selection: $audio.settings.mode) {
                         Text("Удары").tag("beats")
                         Text("Энергия баса").tag("continuous")
-                    }.pickerStyle(.segmented).disabled(audio.isPlaying && audio.playbackMode == .planned)
-                    valueSlider("Сила", value: $audio.settings.intensity, range: 0...1, step: 0.01,
+                    }.pickerStyle(.segmented).disabled(audio.playbackMode.usesSystemPulse || (audio.isPlaying && audio.playbackMode == .planned))
+                    if audio.playbackMode.usesSystemPulse {
+                        Text("В системных режимах используются только удары. Частотные полосы и порог меняются во время музыки.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if audio.playbackMode == .systemPulse {
+                        Text("Сила и длина стандартного импульса задаются iOS. Для регулировки силы выбери экспериментальный вариант после Стоп.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        valueSlider("Сила", value: $audio.settings.intensity, range: 0...1, step: 0.01,
                                 display: "\(Int(audio.settings.intensity * 100)) %")
                         .disabled(audio.isPlaying && audio.playbackMode == .planned)
+                    }
                     valueSlider("Порог реакции", value: $audio.settings.thresholdDB, range: -60 ... -5, step: 1,
                                 display: "\(Int(audio.settings.thresholdDB)) dBFS")
                         .disabled(audio.isPlaying && audio.playbackMode == .planned)
@@ -85,7 +96,7 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     valueSlider("Резкость", value: $audio.settings.sharpness, range: 0...1, step: 0.01,
                                 display: "\(Int(audio.settings.sharpness * 100)) %")
-                        .disabled(audio.isPlaying && audio.playbackMode == .planned)
+                        .disabled(audio.playbackMode.usesSystemPulse || (audio.isPlaying && audio.playbackMode == .planned))
                     ProgressView(value: audio.drive).tint(.orange)
                         .accessibilityLabel("Энергия для вибрации")
                 }

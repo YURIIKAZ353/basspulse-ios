@@ -12,6 +12,7 @@ final class HapticOutput {
     private var probeToken: UUID?
     private var supportPlayer: CHHapticAdvancedPatternPlayer?
     private var reactiveAudioLevel: Float?
+    private var systemPulse: SystemPulseOutput?
     var status: (String) -> Void = { _ in }
     var event: (String) -> Void = { _ in }
     var probeState: (Bool) -> Void = { _ in }
@@ -51,6 +52,7 @@ final class HapticOutput {
 
     @discardableResult
     func apply(level: Double, beat: Bool, settings: PulseSettings) -> Bool {
+        if let systemPulse { return systemPulse.apply(level: level, beat: beat, settings: settings) }
         guard ready, probeToken == nil, let engine else { return false }
         var sent = false
         do {
@@ -117,6 +119,16 @@ final class HapticOutput {
             status("Ошибка вибрации: \(error.localizedDescription). Нажми Стоп → Играть.")
             return false
         }
+    }
+
+    func prepareSystemPulse(custom: Bool) throws {
+        stop()
+        let output = SystemPulseOutput(custom: custom)
+        output.event = event
+        try output.prepare()
+        systemPulse = output
+        status(custom ? "AudioToolbox: короткие импульсы, силу проверяем на устройстве"
+                      : "System Sound: удары по музыке, сила системная")
     }
 
     func prepareReactive(audioLevel: Float) throws {
@@ -192,6 +204,8 @@ final class HapticOutput {
     }
 
     func stop() {
+        systemPulse?.stop()
+        systemPulse = nil
         if probeToken != nil || probe != nil { endProbe() }
         try? continuous?.stop(atTime: CHHapticTimeImmediate)
         continuous = nil
