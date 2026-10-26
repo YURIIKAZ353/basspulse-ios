@@ -1,0 +1,9 @@
+.DS_Store
+build/
+*.xcodeproj/
+*.xcworkspace/
+*.ipa
+*.zip
+*.p12
+*.mobileprovision
+*.xcuserstate
