@@ -8,6 +8,7 @@ final class AnalysisBridge {
     private let lock = NSLock()
     private var settings = PulseSettings()
     private var detector = BassDetector()
+    var diagnostics: RuntimeDiagnostics?
 
     func configure(_ value: PulseSettings) {
         lock.lock()
@@ -16,6 +17,7 @@ final class AnalysisBridge {
     }
 
     func process(_ buffer: AVAudioPCMBuffer) -> Detection? {
+        diagnostics?.increment(0)
         guard let channels = buffer.floatChannelData, !buffer.format.isInterleaved else { return nil }
         lock.lock()
         let current = settings
@@ -48,10 +50,12 @@ final class AudioController: ObservableObject {
     @Published private(set) var lastFailure = ""
     @Published private(set) var audioFormatInfo = ""
     @Published private(set) var fileInfo = ""
+    @Published private(set) var probeRunning = false
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
     private let haptics = HapticOutput()
+    private let diagnostics = RuntimeDiagnostics()
     private var audioEngine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
     private var selectedURL: URL?
@@ -67,7 +71,19 @@ final class AudioController: ObservableObject {
         let saved = UserDefaults.standard.data(forKey: "settings.v1")
         settings = saved.flatMap { try? JSONDecoder().decode(PulseSettings.self, from: $0) } ?? PulseSettings()
         haptics.status = { [weak self] message in self?.hapticStatus = message }
+        haptics.event = { [weak diagnostics] message in diagnostics?.record(message) }
+        haptics.probeState = { [weak self] running in self?.probeRunning = running }
         let nc = NotificationCenter.default
+        for (notification, phase) in [
+            (UIApplication.willResignActiveNotification, "inactive"),
+            (UIApplication.didEnterBackgroundNotification, "background"),
+            (UIApplication.willEnterForegroundNotification, "foreground"),
+            (UIApplication.didBecomeActiveNotification, "active")
+        ] {
+            observers.append(nc.addObserver(forName: notification, object: nil, queue: .main) { [weak self] _ in
+                self?.diagnostics.transition(phase)
+            })
+        }
         observers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             let kind = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) ?? 0
             if kind == AVAudioSession.InterruptionType.began.rawValue {
@@ -193,6 +209,7 @@ final class AudioController: ObservableObject {
             let token = UUID()
             generation = token
             let analysis = AnalysisBridge()
+            analysis.diagnostics = diagnostics
             analysis.configure(settings)
             activeAnalysis = analysis
             // The mixer supplies normalized noninterleaved Float32 PCM.
@@ -224,6 +241,7 @@ final class AudioController: ObservableObject {
             lastAnalysis = Date()
             maximumDeliveryTime = 0
             node.play()
+            diagnostics.record("audio playback started")
             updateRoute()
             status = "Воспроизведение; фон и блокировку экрана проверяем на устройстве"
             watchdog = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -244,6 +262,7 @@ final class AudioController: ObservableObject {
     }
 
     private func receive(_ result: Detection, renderedAt: TimeInterval, token: UUID) {
+        diagnostics.increment(1)
         lastAnalysis = Date()
         levels = result.bandDB
         drive = result.level
@@ -262,7 +281,9 @@ final class AudioController: ObservableObject {
             guard let self, self.generation == token else { return }
             self.pending = max(0, self.pending - 1)
             guard self.isPlaying, self.settingsRevision == revision else { return }
-            self.haptics.apply(level: result.level, beat: result.beat, settings: self.settings)
+            if self.haptics.apply(level: result.level, beat: result.beat, settings: self.settings) {
+                self.diagnostics.increment(2)
+            }
         }
     }
 
@@ -311,9 +332,25 @@ final class AudioController: ObservableObject {
 
     func resetSettings() { settings = PulseSettings() }
 
+    func startBackgroundProbe() {
+        guard isPlaying, !probeRunning else { return }
+        guard settings.intensity > 0 else { errorMessage = "Для теста установи силу выше нуля."; return }
+        do {
+            try haptics.startProbe(strength: Float(settings.intensity))
+            let token = generation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.haptics.endProbe()
+            }
+        } catch {
+            diagnostics.record("probe start error: \(error as NSError)")
+            errorMessage = describe(error, stage: "запланированный тест фона")
+        }
+    }
+
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.2 (3)
+        BassPulse 0.1.3 (4)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -323,6 +360,8 @@ final class AudioController: ObservableObject {
         Formats: \(audioFormatInfo)
         File: \(fileInfo)
         Last error: \(lastFailure)
+        Runtime:
+        \(diagnostics.report())
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
         """
     }

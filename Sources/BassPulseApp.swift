@@ -19,7 +19,7 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.2 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.3 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
@@ -74,6 +74,11 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Диагностика") {
+                    Button(audio.probeRunning ? "Тест импульсов выполняется…" : "Тест фона: 12 импульсов") {
+                        audio.startBackgroundProbe()
+                    }.disabled(!audio.isPlaying || audio.probeRunning)
+                    Text("Запусти песню, нажми тест и выйди на главный экран на 6 секунд. Он заранее планирует 12 импульсов, по одному в секунду, и временно заменяет вибрацию под музыку. Для блокировки повтори отдельно.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text(audio.hapticStatus).font(.caption)
                     if !audio.fileInfo.isEmpty { Text(audio.fileInfo).font(.caption) }
                     if !audio.audioFormatInfo.isEmpty { Text(audio.audioFormatInfo).font(.caption) }

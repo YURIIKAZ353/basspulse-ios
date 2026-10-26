@@ -25,6 +25,10 @@ jobs:
           build/dsp-tests
       - name: Install project generator
         run: brew install xcodegen
+      - name: Test runtime diagnostics
+        run: |
+          swiftc Sources/RuntimeDiagnostics.swift Tests/Diagnostics/main.swift -o build/diagnostics-tests
+          build/diagnostics-tests
       - name: Test PCM importer with real WAV and AAC
         run: |
           swiftc Sources/PCMImporter.swift Sources/ImportedAudioStore.swift Sources/PrototypeError.swift Tests/Audio/main.swift -o build/import-tests-bin

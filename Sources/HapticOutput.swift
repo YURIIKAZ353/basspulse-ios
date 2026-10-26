@@ -7,7 +7,11 @@ final class HapticOutput {
     private var continuous: CHHapticAdvancedPatternPlayer?
     private var ready = false
     private var lastMode = ""
+    private var probe: CHHapticAdvancedPatternPlayer?
     var status: (String) -> Void = { _ in }
+    var event: (String) -> Void = { _ in }
+    var probeState: (Bool) -> Void = { _ in }
+    var isProbing: Bool { probe != nil }
     var supported: Bool { CHHapticEngine.capabilitiesForHardware().supportsHaptics }
 
     func prepare() throws {
@@ -17,6 +21,7 @@ final class HapticOutput {
             created.playsHapticsOnly = true
             created.isAutoShutdownEnabled = false
             created.stoppedHandler = { [weak self] reason in
+                self?.event("engine stopped reason=\(reason.rawValue)")
                 DispatchQueue.main.async {
                     self?.ready = false
                     self?.continuous = nil
@@ -24,6 +29,7 @@ final class HapticOutput {
                 }
             }
             created.resetHandler = { [weak self] in
+                self?.event("engine reset")
                 DispatchQueue.main.async {
                     self?.ready = false
                     self?.continuous = nil
@@ -34,11 +40,14 @@ final class HapticOutput {
         }
         try engine?.start()
         ready = true
+        event("engine started; playsHapticsOnly=true")
         status("Core Haptics готов")
     }
 
-    func apply(level: Double, beat: Bool, settings: PulseSettings) {
-        guard ready, let engine else { return }
+    @discardableResult
+    func apply(level: Double, beat: Bool, settings: PulseSettings) -> Bool {
+        guard ready, probe == nil, let engine else { return false }
+        var sent = false
         do {
             if lastMode != settings.mode {
                 try continuous?.stop(atTime: CHHapticTimeImmediate)
@@ -55,6 +64,7 @@ final class HapticOutput {
                     let pattern = try CHHapticPattern(events: [event], parameters: [])
                     let player = try engine.makePlayer(with: pattern)
                     try player.start(atTime: CHHapticTimeImmediate)
+                    sent = true
                 }
             } else {
                 if continuous == nil {
@@ -76,16 +86,52 @@ final class HapticOutput {
                     CHHapticDynamicParameter(parameterID: .hapticSharpnessControl, value: Float(settings.sharpness) - 0.5, relativeTime: 0)
                 ], atTime: CHHapticTimeImmediate)
                 continuous?.isMuted = false
+                sent = strength > 0.01
             }
+            return sent
         } catch {
+            event("haptic API error: \(error as NSError)")
             ready = false
             try? continuous?.stop(atTime: CHHapticTimeImmediate)
             continuous = nil
             status("Ошибка вибрации: \(error.localizedDescription). Нажми Стоп → Играть.")
+            return false
         }
     }
 
+    func startProbe(strength: Float) throws {
+        if !ready { try prepare() }
+        guard let engine, ready else { return }
+        try continuous?.stop(atTime: CHHapticTimeImmediate)
+        continuous = nil
+        try probe?.stop(atTime: CHHapticTimeImmediate)
+        let events = (0..<12).map { index in
+            CHHapticEvent(eventType: .hapticTransient, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: strength),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.5)
+            ], relativeTime: Double(index))
+        }
+        let pattern = try CHHapticPattern(events: events, parameters: [])
+        let player = try engine.makeAdvancedPlayer(with: pattern)
+        player.completionHandler = { [weak self] error in
+            self?.event("preplanned probe completion: \(error.map { String(describing: $0) } ?? "no error")")
+        }
+        probe = player
+        do { try player.start(atTime: CHHapticTimeImmediate) }
+        catch { probe = nil; throw error }
+        probeState(true)
+        event("preplanned 12-second probe submitted in foreground")
+    }
+
+    func endProbe() {
+        try? probe?.stop(atTime: CHHapticTimeImmediate)
+        probe = nil
+        probeState(false)
+        event("preplanned probe released")
+    }
+
     func stop() {
+        if probe != nil { endProbe() }
         try? continuous?.stop(atTime: CHHapticTimeImmediate)
         continuous = nil
         ready = false
