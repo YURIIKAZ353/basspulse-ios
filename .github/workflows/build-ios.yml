@@ -35,6 +35,10 @@ jobs:
           build/import-tests-bin
       - name: Generate Xcode project
         run: xcodegen generate
+      - name: Test actual music chunk preparation
+        run: |
+          swiftc Sources/DSP.swift Sources/AudioChunkReader.swift Sources/PrototypeError.swift Tests/Chunks/main.swift -o build/chunk-tests
+          build/chunk-tests
       - name: Build for physical iPhone without signing
         run: |
           set -o pipefail

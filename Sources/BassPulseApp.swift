@@ -19,10 +19,16 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.4 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.5 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
+                    Toggle("Музыка и вибрация в одном движке", isOn: $audio.useCombinedPlayback)
+                        .disabled(audio.isPlaying || audio.isImporting)
+                    Text(audio.useCombinedPlayback
+                         ? "Новый режим для проверки фона: воспроизводится сама песня вместе с рассчитанной вибрацией. Без тестового тона. Частоты, сила и резкость применяются примерно в течение 3 секунд; выключение вибрации — сразу."
+                         : "Прежний проигрыватель для сравнения. Его вибрация в фоне на твоём iPhone не работала.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text(audio.title).lineLimit(2)
                     Button { importing = true } label: { Label("Выбрать аудио из Файлов", systemImage: "folder") }
                         .disabled(audio.isPlaying || audio.isImporting)
@@ -70,7 +76,7 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     valueSlider("Поправка вибрации", value: $audio.settings.delayMS, range: -250...500, step: 10,
                                 display: "\(Int(audio.settings.delayMS)) мс")
-                    Text("Плюс — вибрация позже; минус — раньше относительно оценки iOS. Это ручная калибровка, точная синхронизация не гарантирована.")
+                    Text("Плюс — вибрация позже, минус — раньше. Новый режим использует общую шкалу времени музыки и вибрации; поправку Bluetooth подбираем на слух и по ощущениям.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Диагностика") {
@@ -79,7 +85,7 @@ struct ContentView: View {
                     }.disabled(audio.probeRunning)
                     Button(audio.probeRunning ? "Тест выполняется…" : "Тест выбранного способа (12 с)") {
                         audio.startBackgroundProbe()
-                    }.disabled(!audio.isPlaying || audio.probeRunning)
+                    }.disabled(!audio.isPlaying || audio.probeRunning || audio.useCombinedPlayback)
                     Text("Запусти песню, выбери способ, нажми тест и выйди на главный экран на 6 секунд. Для блокировки повтори отдельно. Во время теста обычная реакция на музыку приостановлена.")
                         .font(.caption).foregroundStyle(.secondary)
                     Text(audio.probeMode == .systemSound

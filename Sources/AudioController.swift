@@ -33,6 +33,7 @@ final class AudioController: ObservableObject {
     @Published var settings: PulseSettings {
         didSet {
             activeAnalysis?.configure(settings)
+            combined.updateSettings(settings)
             if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "settings.v1") }
             // Do not retain haptic commands calculated using older settings.
             settingsRevision += 1
@@ -52,10 +53,12 @@ final class AudioController: ObservableObject {
     @Published private(set) var fileInfo = ""
     @Published private(set) var probeRunning = false
     @Published var probeMode: HapticProbeMode = .sharedAudio
+    @Published var useCombinedPlayback = true
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
     private let haptics = HapticOutput()
+    private let combined = CombinedPlayback()
     private let diagnostics = RuntimeDiagnostics()
     private var audioEngine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
@@ -74,6 +77,29 @@ final class AudioController: ObservableObject {
         haptics.status = { [weak self] message in self?.hapticStatus = message }
         haptics.event = { [weak diagnostics] message in diagnostics?.record(message) }
         haptics.probeState = { [weak self] running in self?.probeRunning = running }
+        combined.onStatus = { [weak self] message in self?.status = message }
+        combined.onEvent = { [weak diagnostics] message in diagnostics?.record(message) }
+        combined.onAnalysis = { [weak diagnostics] in diagnostics?.increment(0) }
+        combined.onHapticPattern = { [weak diagnostics] in diagnostics?.increment(2) }
+        combined.onFormat = { [weak self] format in self?.audioFormatInfo = format }
+        combined.onMeter = { [weak self] value in
+            guard let self else { return }
+            self.levels = value.bandDB
+            self.drive = value.level
+            self.diagnostics.increment(1)
+        }
+        combined.onFinish = { [weak self] in
+            self?.stop()
+            self?.status = "Воспроизведение завершено"
+        }
+        combined.onError = { [weak self] error in
+            guard let self else { return }
+            let failure = self.describe(error, stage: "совместное воспроизведение музыки и вибрации")
+            self.stop()
+            self.lastFailure = failure
+            self.errorMessage = failure
+            self.status = "Совместное воспроизведение остановлено из-за ошибки"
+        }
         let nc = NotificationCenter.default
         for (notification, phase) in [
             (UIApplication.willResignActiveNotification, "inactive"),
@@ -179,6 +205,7 @@ final class AudioController: ObservableObject {
     func play() {
         guard !isImporting else { return }
         guard let selectedURL else { errorMessage = "Сначала выбери аудиофайл или встроенный тест."; return }
+        if useCombinedPlayback { playCombined(url: selectedURL); return }
         stop(deactivateSession: false)
         audioFormatInfo = ""
         fileInfo = ImportedAudioStore.fileSummary(selectedURL)
@@ -295,6 +322,7 @@ final class AudioController: ObservableObject {
         watchdog?.invalidate()
         watchdog = nil
         haptics.stop()
+        combined.stop()
         player?.stop()
         audioEngine?.mainMixerNode.removeTap(onBus: 0)
         audioEngine?.stop()
@@ -335,6 +363,10 @@ final class AudioController: ObservableObject {
 
     func startBackgroundProbe() {
         guard isPlaying, !probeRunning else { return }
+        guard !useCombinedPlayback else {
+            errorMessage = "Отдельные тесты доступны в прежнем режиме. Нажми Стоп и выключи совместное воспроизведение."
+            return
+        }
         guard settings.intensity > 0 else { errorMessage = "Для теста установи силу выше нуля."; return }
         do {
             try haptics.startProbe(strength: Float(settings.intensity), mode: probeMode)
@@ -356,7 +388,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.4 (5)
+        BassPulse 0.1.5 (6)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -367,6 +399,7 @@ final class AudioController: ObservableObject {
         File: \(fileInfo)
         Last error: \(lastFailure)
         Selected probe: \(probeMode.rawValue)
+        Playback backend: \(useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : "legacy AVAudioEngine + live haptic commands")
         Runtime:
         \(diagnostics.report())
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
@@ -377,6 +410,28 @@ final class AudioController: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         route = session.currentRoute.outputs.map { $0.portName }.joined(separator: ", ")
         latencyMS = Int(session.outputLatency * 1000)
+    }
+
+    private func playCombined(url: URL) {
+        stop(deactivateSession: false)
+        audioFormatInfo = ""
+        lastFailure = ""
+        fileInfo = ImportedAudioStore.fileSummary(url)
+        do {
+            guard FileManager.default.fileExists(atPath: url.path) else { throw PrototypeError.preparedFileMissing }
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default)
+            try session.setActive(true)
+            updateRoute()
+            isPlaying = true
+            try combined.start(url: url, settings: settings)
+            hapticStatus = "Core Haptics: настоящая музыка + реакция на частоты"
+        } catch {
+            let failure = describe(error, stage: "запуск совместного воспроизведения")
+            stop()
+            lastFailure = failure
+            errorMessage = failure
+        }
     }
 
     private func describe(_ error: Error, stage: String) -> String {
