@@ -31,11 +31,11 @@ jobs:
       - name: Build read-only runtime inspector
         run: |
           xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=27.0 \
-            -fobjc-arc -framework Foundation -framework CoreHaptics -framework AudioToolbox -framework AVFoundation \
+            -fobjc-arc -framework Foundation -framework CoreHaptics -framework AudioToolbox -framework AVFoundation -framework CoreMedia \
             Research/RuntimeInspect.m Research/MediaRouteProbe.m -o research-output/runtime-inspect
           codesign --force --sign - research-output/runtime-inspect
           xcrun clang -arch arm64 -fobjc-arc -framework Foundation -framework CoreHaptics \
-            -framework AudioToolbox -framework AVFoundation \
+            -framework AudioToolbox -framework AVFoundation -framework CoreMedia \
             Research/RuntimeInspect.m Research/MediaRouteProbe.m -o research-output/runtime-inspect-host
       - name: Inspect loaded simulator frameworks
         run: |

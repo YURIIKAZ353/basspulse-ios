@@ -45,27 +45,30 @@ int main(int argc, char **argv) {
         result[@"device"] = NSProcessInfo.processInfo.environment[@"SIMULATOR_MODEL_IDENTIFIER"] ?: @"host";
         NSMutableDictionary *classes = [NSMutableDictionary dictionary];
         NSArray *classNames = @[@"CHHapticEngine", @"AVHapticPlayer", @"AVHapticClient", @"PatternPlayer",
-                                @"AdvancedPatternPlayer", @"PatternPlayerBase", @"AVHapticPlayerChannel"];
+                                @"AdvancedPatternPlayer", @"PatternPlayerBase", @"AVHapticPlayerChannel", @"HapticServerConfig"];
         for (NSString *className in classNames) {
             Class cls = NSClassFromString(className);
             if (!cls) { classes[className] = @{ @"present": @NO }; continue; }
             NSMutableDictionary *methods = [NSMutableDictionary dictionary];
+            NSMutableArray *names = [NSMutableArray array];
             unsigned count = 0;
             Method *list = class_copyMethodList(cls, &count);
             for (unsigned i = 0; i < count; ++i) {
                 NSString *selector = NSStringFromSelector(method_getName(list[i]));
+                [names addObject:selector];
                 NSString *lower = selector.lowercaseString;
                 BOOL inspect = [lower containsString:@"behavior"] || [lower containsString:@"privileg"]
                     || [lower containsString:@"options"] || [lower containsString:@"priority"]
                     || [lower containsString:@"vibepattern"] || [lower containsString:@"ringtone"]
-                    || [lower containsString:@"mute"];
+                    || [lower containsString:@"mute"] || [lower containsString:@"capabil"]
+                    || [lower containsString:@"background"] || [lower containsString:@"serverconfig"];
                 if (inspect) {
                     methods[selector] = @{ @"encoding": @(method_getTypeEncoding(list[i])),
                                           @"code": dumpCode((const void *)method_getImplementation(list[i])) };
                 }
             }
             free(list);
-            classes[className] = @{ @"present": @YES, @"methods": methods };
+            classes[className] = @{ @"present": @YES, @"methods": methods, @"selectors": names };
         }
         result[@"classes"] = classes;
         NSMutableDictionary *functions = [NSMutableDictionary dictionary];
