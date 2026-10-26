@@ -27,7 +27,7 @@ jobs:
         run: brew install xcodegen
       - name: Test PCM importer with real WAV and AAC
         run: |
-          swiftc Sources/PCMImporter.swift Sources/PrototypeError.swift Tests/Audio/main.swift -o build/import-tests-bin
+          swiftc Sources/PCMImporter.swift Sources/ImportedAudioStore.swift Sources/PrototypeError.swift Tests/Audio/main.swift -o build/import-tests-bin
           build/import-tests-bin
       - name: Generate Xcode project
         run: xcodegen generate

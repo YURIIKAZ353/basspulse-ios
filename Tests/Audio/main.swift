@@ -63,3 +63,28 @@ do {
     _ = try PCMImporter.decode(bad, directory: root)
     fatalError("Malformed audio must fail at import")
 } catch { print("PASS: malformed audio rejected at import") }
+
+// Exercise the complete import -> cleanup -> reopen path, not only decoding.
+// /var and /private/var can spell the same iOS container differently. A symlink
+// alias reproduces this class of identity mismatch on the macOS runner.
+let library = root.appendingPathComponent("library with spaces", isDirectory: true)
+try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+let alias = root.appendingPathComponent("library-alias", isDirectory: true)
+try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: library)
+let first = try PCMImporter.decode(wave, directory: library)
+let firstFrameCount = try AVAudioFile(forReading: first).length
+let enumerated = try FileManager.default.contentsOfDirectory(at: alias, includingPropertiesForKeys: nil)
+let sameFileAlias = enumerated.first { $0.lastPathComponent == first.lastPathComponent }!
+check(sameFileAlias != first, "Fixture must expose alternate URL spellings")
+print("Reproduced: the original URL != cleanup would delete the active PCM through an alias")
+try ImportedAudioStore.removePreviousFiles(in: alias, keeping: first)
+check(FileManager.default.fileExists(atPath: first.path), "Cleanup must retain selected PCM")
+let reopenedFirst = try AVAudioFile(forReading: first)
+check(reopenedFirst.length == firstFrameCount, "Selected PCM must reopen after cleanup")
+let second = try PCMImporter.decode(m4a, directory: alias)
+try ImportedAudioStore.removePreviousFiles(in: alias, keeping: second)
+check(FileManager.default.fileExists(atPath: second.path), "Second selected file must survive")
+check(!FileManager.default.fileExists(atPath: first.path), "Previous imported PCM should be removed")
+let reopenedSecond = try AVAudioFile(forReading: second)
+check(reopenedSecond.length > 0, "Reimported AAC PCM must reopen")
+print("PASS: import, alias-safe cleanup, reopen, reimport, old-file removal")

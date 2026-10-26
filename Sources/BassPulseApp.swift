@@ -19,7 +19,7 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.1 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.2 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
@@ -75,6 +75,7 @@ struct ContentView: View {
                 }
                 Section("Диагностика") {
                     Text(audio.hapticStatus).font(.caption)
+                    if !audio.fileInfo.isEmpty { Text(audio.fileInfo).font(.caption) }
                     if !audio.audioFormatInfo.isEmpty { Text(audio.audioFormatInfo).font(.caption) }
                     if !audio.lastFailure.isEmpty {
                         Text(audio.lastFailure).font(.caption).foregroundStyle(.red).textSelection(.enabled)

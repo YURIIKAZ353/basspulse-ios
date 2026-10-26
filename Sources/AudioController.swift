@@ -47,6 +47,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var latencyMS = 0
     @Published private(set) var lastFailure = ""
     @Published private(set) var audioFormatInfo = ""
+    @Published private(set) var fileInfo = ""
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
@@ -111,13 +112,16 @@ final class AudioController: ObservableObject {
                 self.isImporting = false
                 switch result {
                 case .success(let destination):
+                    // Protect by filename inside the owned directory; a URL
+                    // comparison can differ for two spellings of the same file.
+                    let folder = destination.deletingLastPathComponent()
+                    try? ImportedAudioStore.removePreviousFiles(in: folder, keeping: destination)
                     self.selectedURL = destination
                     self.title = source.lastPathComponent
+                    self.fileInfo = ImportedAudioStore.fileSummary(destination)
+                    self.audioFormatInfo = ""
+                    self.lastFailure = ""
                     self.status = "Файл преобразован в PCM. Нажми Играть."
-                    let folder = destination.deletingLastPathComponent()
-                    if let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) {
-                        for old in files where old != destination { try? FileManager.default.removeItem(at: old) }
-                    }
                 case .failure(let error):
                     self.status = "Не удалось декодировать выбранный файл"
                     self.lastFailure = self.describe(error, stage: "импорт и декодирование файла в PCM")
@@ -159,6 +163,8 @@ final class AudioController: ObservableObject {
         guard !isImporting else { return }
         guard let selectedURL else { errorMessage = "Сначала выбери аудиофайл или встроенный тест."; return }
         stop(deactivateSession: false)
+        audioFormatInfo = ""
+        fileInfo = ImportedAudioStore.fileSummary(selectedURL)
         var stage = "настройка аудиосессии"
         do {
             let session = AVAudioSession.sharedInstance()
@@ -167,6 +173,9 @@ final class AudioController: ObservableObject {
             try session.setActive(true)
             updateRoute()
             stage = "открытие выбранного файла"
+            guard FileManager.default.fileExists(atPath: selectedURL.path) else {
+                throw PrototypeError.preparedFileMissing
+            }
             let file = try AVAudioFile(forReading: selectedURL)
             let engine = AVAudioEngine()
             let node = AVAudioPlayerNode()
@@ -304,7 +313,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.1 (2)
+        BassPulse 0.1.2 (3)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -312,6 +321,7 @@ final class AudioController: ObservableObject {
         Haptics: \(hapticStatus)
         State: \(status)
         Formats: \(audioFormatInfo)
+        File: \(fileInfo)
         Last error: \(lastFailure)
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
         """
@@ -332,6 +342,7 @@ final class AudioController: ObservableObject {
         \(ns.localizedDescription)
         Код: \(ns.code) • \(ns.domain)\(details)
         Выход: \(route.isEmpty ? "не определён" : route)
+        \(fileInfo)
         \(audioFormatInfo)
         """
     }

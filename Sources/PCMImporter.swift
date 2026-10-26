@@ -17,7 +17,7 @@ enum PCMImporter {
             try write(file, to: destination)
             let check = try AVAudioFile(forReading: destination)
             guard check.length > 0 else { throw PrototypeError.emptyFile }
-            return destination
+            return URL(fileURLWithPath: destination.path).standardizedFileURL.resolvingSymlinksInPath()
         } catch {
             try? FileManager.default.removeItem(at: destination)
             throw error
