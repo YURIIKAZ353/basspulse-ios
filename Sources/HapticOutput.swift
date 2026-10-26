@@ -66,10 +66,8 @@ final class HapticOutput {
                     let player = try engine.makeAdvancedPlayer(with: pattern)
                     player.loopEnabled = true
                     player.loopEnd = 1
-                    // Mute before starting, so there is no initial full-strength burst.
-                    try player.sendParameters([
-                        CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: 0, relativeTime: 0)
-                    ], atTime: CHHapticTimeImmediate)
+                    // Keep the first frame muted until its dynamic level is set.
+                    player.isMuted = true
                     try player.start(atTime: CHHapticTimeImmediate)
                     continuous = player
                 }
@@ -77,6 +75,7 @@ final class HapticOutput {
                     CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: strength, relativeTime: 0),
                     CHHapticDynamicParameter(parameterID: .hapticSharpnessControl, value: Float(settings.sharpness) - 0.5, relativeTime: 0)
                 ], atTime: CHHapticTimeImmediate)
+                continuous?.isMuted = false
             }
         } catch {
             ready = false

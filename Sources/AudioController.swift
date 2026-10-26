@@ -30,7 +30,7 @@ final class AnalysisBridge {
 final class AudioController: ObservableObject {
     @Published var settings: PulseSettings {
         didSet {
-            bridge.configure(settings)
+            activeAnalysis?.configure(settings)
             if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "settings.v1") }
             // Do not retain haptic commands calculated using older settings.
             settingsRevision += 1
@@ -46,7 +46,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var latencyMS = 0
     @Published var errorMessage: String?
 
-    private let bridge = AnalysisBridge()
+    private var activeAnalysis: AnalysisBridge?
     private let haptics = HapticOutput()
     private var audioEngine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
@@ -62,7 +62,6 @@ final class AudioController: ObservableObject {
     init() {
         let saved = UserDefaults.standard.data(forKey: "settings.v1")
         settings = saved.flatMap { try? JSONDecoder().decode(PulseSettings.self, from: $0) } ?? PulseSettings()
-        bridge.configure(settings)
         haptics.status = { [weak self] message in self?.hapticStatus = message }
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
@@ -161,13 +160,13 @@ final class AudioController: ObservableObject {
             generation = token
             let analysis = AnalysisBridge()
             analysis.configure(settings)
+            activeAnalysis = analysis
             // The mixer supplies normalized noninterleaved Float32 PCM.
             engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, time in
                 guard let result = analysis.process(buffer) else { return }
                 let renderedAt = time.isHostTimeValid ? AVAudioTime.seconds(forHostTime: time.hostTime) : ProcessInfo.processInfo.systemUptime
                 DispatchQueue.main.async {
                     guard let self, self.generation == token, self.isPlaying else { return }
-                    analysis.configure(self.settings)
                     self.receive(result, renderedAt: renderedAt, token: token)
                 }
             }
@@ -239,6 +238,7 @@ final class AudioController: ObservableObject {
         audioEngine?.stop()
         player = nil
         audioEngine = nil
+        activeAnalysis = nil
         levels = [-100, -100]
         drive = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
