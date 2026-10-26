@@ -54,7 +54,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var fileInfo = ""
     @Published private(set) var probeRunning = false
     @Published var probeMode: HapticProbeMode = .sharedSilent
-    @Published var playbackMode: PlaybackMode = .bassBlend
+    @Published var playbackMode: PlaybackMode = .systemContinuous
     @Published var supportAudioLevel: Double = 0.03
     var useCombinedPlayback: Bool { playbackMode == .combined }
     @Published var errorMessage: String?
@@ -417,7 +417,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.9 (10)
+        BassPulse 0.1.10 (11)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -430,7 +430,8 @@ final class AudioController: ObservableObject {
         Selected probe: \(probeMode.rawValue)
         Playback mode: \(playbackMode.rawValue); support audio level: \(supportAudioLevel)
         System Pulse: \(playbackMode.usesSystemPulse); blend=\(playbackMode == .bassBlend); API calls do not prove physical vibration
-        Playback backend: \(playbackMode.usesSystemPulse ? "continuous AVAudioEngine + live DSP + AudioToolbox pulses; no preplanned pattern and no Core Haptics engine" : playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
+        Persistent SystemSound category player: \(playbackMode == .systemContinuous); see factory actualCategory and dynamic update events
+        Playback backend: \(playbackMode == .systemContinuous ? "AVAudioEngine music + SystemSound-category Core Haptics; ONE continuous player + dynamic parameters, no repeated short starts" : playbackMode.usesSystemPulse ? "continuous AVAudioEngine + live DSP + AudioToolbox pulses; no preplanned pattern and no Core Haptics engine" : playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
         Runtime:
         \(diagnostics.report())
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
@@ -444,7 +445,9 @@ final class AudioController: ObservableObject {
     }
 
     private func prepareLiveHaptics() throws {
-        if playbackMode.usesSystemPulse {
+        if playbackMode == .systemContinuous {
+            try haptics.prepareContinuousSystem()
+        } else if playbackMode.usesSystemPulse {
             try haptics.prepareSystemPulse(custom: playbackMode != .systemPulse, blend: playbackMode == .bassBlend)
         } else if playbackMode == .liveShared {
             try haptics.prepareReactive(audioLevel: Float(supportAudioLevel))

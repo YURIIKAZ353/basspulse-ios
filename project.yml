@@ -17,8 +17,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.basspulse.prototype
         PRODUCT_NAME: BassPulse
-        MARKETING_VERSION: "0.1.9"
-        CURRENT_PROJECT_VERSION: "10"
+        MARKETING_VERSION: "0.1.10"
+        CURRENT_PROJECT_VERSION: "11"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/BassPulse-Bridging-Header.h
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Info.plist
     scheme:

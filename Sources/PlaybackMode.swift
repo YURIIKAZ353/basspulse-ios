@@ -1,12 +1,14 @@
 import Foundation
 
 enum PlaybackMode: String, CaseIterable, Identifiable {
-    case bassBlend, systemPulse, customPulse, planned, liveShared, liveBasic, combined
+    case systemContinuous, bassBlend, systemPulse, customPulse, planned, liveShared, liveBasic, combined
     var usesSystemPulse: Bool { self == .bassBlend || self == .systemPulse || self == .customPulse }
+    var usesLayerControls: Bool { self == .systemContinuous || self == .bassBlend }
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .bassBlend: return "Бас + удары • плавная огибающая (опыт)"
+        case .systemContinuous: return "Непрерывный бас + удары • SystemSound (опыт)"
+        case .bassBlend: return "Бас + удары • импульсный опыт 0.1.9"
         case .systemPulse: return "Системные удары • стандартные"
         case .customPulse: return "Системные удары • сила и длительность (опыт)"
         case .planned: return "Рисунок на всю песню • новый опыт"

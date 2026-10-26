@@ -19,15 +19,17 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.9 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.10 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
                     Picker("Воспроизведение", selection: $audio.playbackMode) {
                         ForEach(PlaybackMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.disabled(audio.isPlaying || audio.isImporting)
-                    Text(audio.playbackMode == .bassBlend
-                         ? "Энергия выбранных частот плавно нарастает и затухает, удары добавляют акценты. Можно включить любой слой или оба. Плавность фонового механизма проверяем на ощупь."
+                    Text(audio.playbackMode == .systemContinuous
+                         ? "Один непрерывный проигрыватель с изменяемой силой и резкостью, без повторных коротких запусков. Проверяем внутреннюю категорию SystemSound; её принятие и фон отражаются в диагностике."
+                         : audio.playbackMode == .bassBlend
+                         ? "Предыдущий импульсный опыт 0.1.9. На устройстве ощущается стуками, плавность не подтверждена. Оставлен для сравнения."
                          : audio.playbackMode.usesSystemPulse
                          ? "Живые удары по выбранным частотам, без расчёта песни заранее. Стандартные: фиксированная системная вибрация. Сила и длительность: экспериментальные короткие импульсы 35 мс."
                          : audio.playbackMode == .planned
@@ -75,7 +77,7 @@ struct ContentView: View {
                 }
                 Section("Вибрация") {
                     Toggle("Вибрация под музыку", isOn: $audio.settings.hapticsEnabled)
-                    if audio.playbackMode == .bassBlend {
+                    if audio.playbackMode.usesLayerControls {
                         blendControls
                     } else {
                         Picker("Режим", selection: $audio.settings.mode) {
