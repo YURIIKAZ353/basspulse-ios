@@ -1,0 +1,57 @@
+name: Inspect iOS haptic runtime (no device installation)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['Research/**', '.github/workflows/inspect-haptic-runtime.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select available iOS simulator
+        run: |
+          mkdir -p research-output
+          xcodebuild -version > research-output/toolchain.txt
+          xcrun simctl list devices available -j > research-output/devices.json
+          python3 - <<'PY'
+          import json, os
+          devices = json.load(open('research-output/devices.json'))['devices']
+          choices = [(runtime, d) for runtime, ds in devices.items() if 'iOS-27' in runtime for d in ds if d.get('isAvailable') and d['name'].startswith('iPhone')]
+          if not choices:
+              raise SystemExit('No available iOS 27 iPhone simulator')
+          runtime, device = sorted(choices, key=lambda x: x[0])[0]
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('RESEARCH_SIM=' + device['udid'] + '\n')
+          print(runtime, device['name'], device['udid'])
+          PY
+      - name: Build read-only runtime inspector
+        run: |
+          xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=27.0 \
+            -fobjc-arc -framework Foundation -framework CoreHaptics -framework AudioToolbox \
+            Research/RuntimeInspect.m -o research-output/runtime-inspect
+          codesign --force --sign - research-output/runtime-inspect
+      - name: Inspect loaded simulator frameworks
+        run: |
+          xcrun simctl boot "$RESEARCH_SIM"
+          xcrun simctl bootstatus "$RESEARCH_SIM" -b
+          xcrun simctl spawn "$RESEARCH_SIM" "$PWD/research-output/runtime-inspect" > research-output/runtime-raw.txt
+          python3 - <<'PY'
+          import json
+          lines = open('research-output/runtime-raw.txt').read().splitlines()
+          data = next(json.loads(line.split('BPRESEARCH:', 1)[1]) for line in lines if line.startswith('BPRESEARCH:'))
+          json.dump(data, open('research-output/runtime.json', 'w'), indent=2)
+          print(data['os'], data['device'])
+          print('Constants:', data['constants'])
+          print('Methods:', {c: len(v.get('methods', {})) for c, v in data['classes'].items()})
+          PY
+      - name: Research artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Haptic-runtime-research
+          path: research-output/
+          retention-days: 7
