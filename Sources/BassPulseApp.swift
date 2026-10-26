@@ -19,7 +19,7 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.3 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.4 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
@@ -74,10 +74,19 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Диагностика") {
-                    Button(audio.probeRunning ? "Тест импульсов выполняется…" : "Тест фона: 12 импульсов") {
+                    Picker("Способ теста", selection: $audio.probeMode) {
+                        ForEach(HapticProbeMode.allCases) { mode in Text(mode.title).tag(mode) }
+                    }.disabled(audio.probeRunning)
+                    Button(audio.probeRunning ? "Тест выполняется…" : "Тест выбранного способа (12 с)") {
                         audio.startBackgroundProbe()
                     }.disabled(!audio.isPlaying || audio.probeRunning)
-                    Text("Запусти песню, нажми тест и выйди на главный экран на 6 секунд. Он заранее планирует 12 импульсов, по одному в секунду, и временно заменяет вибрацию под музыку. Для блокировки повтори отдельно.")
+                    Text("Запусти песню, выбери способ, нажми тест и выйди на главный экран на 6 секунд. Для блокировки повтори отдельно. Во время теста обычная реакция на музыку приостановлена.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(audio.probeMode == .systemSound
+                         ? "System Sound: 6 стандартных вибраций с интервалом 2 секунды. Сила системная, ползунок её не меняет. Проверяем только доступность этого пути в фоне."
+                         : audio.probeMode.includesTone
+                         ? "12 импульсов и тихий тестовый тон. Звук и вибрацию создаёт один движок Core Haptics. Это эксперимент, фоновая работа не подтверждена."
+                         : "Исходный режим: 12 импульсов Core Haptics без тестового тона.")
                         .font(.caption).foregroundStyle(.secondary)
                     Text(audio.hapticStatus).font(.caption)
                     if !audio.fileInfo.isEmpty { Text(audio.fileInfo).font(.caption) }

@@ -1,5 +1,6 @@
 import CoreHaptics
 import AVFoundation
+import AudioToolbox
 
 // Called on the main queue. No haptic API is called from the audio render thread.
 final class HapticOutput {
@@ -8,17 +9,19 @@ final class HapticOutput {
     private var ready = false
     private var lastMode = ""
     private var probe: CHHapticAdvancedPatternPlayer?
+    private var probeToken: UUID?
     var status: (String) -> Void = { _ in }
     var event: (String) -> Void = { _ in }
     var probeState: (Bool) -> Void = { _ in }
-    var isProbing: Bool { probe != nil }
+    var isProbing: Bool { probeToken != nil }
     var supported: Bool { CHHapticEngine.capabilitiesForHardware().supportsHaptics }
 
-    func prepare() throws {
+    func prepare(profile: HapticProbeMode = .baseline) throws {
         guard supported else { status("Устройство не поддерживает Core Haptics"); return }
         if engine == nil {
-            let created = try CHHapticEngine(audioSession: AVAudioSession.sharedInstance())
-            created.playsHapticsOnly = true
+            let session: AVAudioSession? = profile == .independentAudio ? nil : AVAudioSession.sharedInstance()
+            let created = try CHHapticEngine(audioSession: session)
+            created.playsHapticsOnly = !profile.includesTone
             created.isAutoShutdownEnabled = false
             created.stoppedHandler = { [weak self] reason in
                 self?.event("engine stopped reason=\(reason.rawValue)")
@@ -40,13 +43,13 @@ final class HapticOutput {
         }
         try engine?.start()
         ready = true
-        event("engine started; playsHapticsOnly=true")
+        event("engine started; profile=\(profile.rawValue), playsHapticsOnly=\(!profile.includesTone)")
         status("Core Haptics готов")
     }
 
     @discardableResult
     func apply(level: Double, beat: Bool, settings: PulseSettings) -> Bool {
-        guard ready, probe == nil, let engine else { return false }
+        guard ready, probeToken == nil, let engine else { return false }
         var sent = false
         do {
             if lastMode != settings.mode {
@@ -99,17 +102,37 @@ final class HapticOutput {
         }
     }
 
-    func startProbe(strength: Float) throws {
-        if !ready { try prepare() }
-        guard let engine, ready else { return }
-        try continuous?.stop(atTime: CHHapticTimeImmediate)
-        continuous = nil
-        try probe?.stop(atTime: CHHapticTimeImmediate)
-        let events = (0..<12).map { index in
+    func startProbe(strength: Float, mode: HapticProbeMode) throws {
+        stop()
+        let token = UUID()
+        if mode == .systemSound {
+            probeToken = token
+            probeState(true)
+            event("probe mode=systemSound: 6 calls, 2 seconds apart; fixed system intensity")
+            for index in 0..<6 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(index * 2)) { [weak self] in
+                    guard let self, self.probeToken == token else { return }
+                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                    self.event("system vibration call \(index + 1)/6 submitted; no API success feedback")
+                }
+            }
+            return
+        }
+        try prepare(profile: mode)
+        guard let engine, ready else { throw PrototypeError.hapticsUnavailable }
+        var events = (0..<12).map { index in
             CHHapticEvent(eventType: .hapticTransient, parameters: [
                 CHHapticEventParameter(parameterID: .hapticIntensity, value: strength),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.5)
             ], relativeTime: Double(index))
+        }
+        if mode.includesTone {
+            // A real, explicitly disclosed sound in this engine tests the
+            // combined audio/haptics path. This is not a silent keep-alive.
+            events.append(CHHapticEvent(eventType: .audioContinuous, parameters: [
+                CHHapticEventParameter(parameterID: .audioVolume, value: 0.03),
+                CHHapticEventParameter(parameterID: .audioPitch, value: -1)
+            ], relativeTime: 0, duration: 12))
         }
         let pattern = try CHHapticPattern(events: events, parameters: [])
         let player = try engine.makeAdvancedPlayer(with: pattern)
@@ -117,13 +140,15 @@ final class HapticOutput {
             self?.event("preplanned probe completion: \(error.map { String(describing: $0) } ?? "no error")")
         }
         probe = player
+        probeToken = token
         do { try player.start(atTime: CHHapticTimeImmediate) }
-        catch { probe = nil; throw error }
+        catch { probe = nil; probeToken = nil; throw error }
         probeState(true)
-        event("preplanned 12-second probe submitted in foreground")
+        event("preplanned 12-second probe submitted; mode=\(mode.rawValue); testTone=\(mode.includesTone)")
     }
 
     func endProbe() {
+        probeToken = nil
         try? probe?.stop(atTime: CHHapticTimeImmediate)
         probe = nil
         probeState(false)
@@ -131,7 +156,7 @@ final class HapticOutput {
     }
 
     func stop() {
-        if probe != nil { endProbe() }
+        if probeToken != nil || probe != nil { endProbe() }
         try? continuous?.stop(atTime: CHHapticTimeImmediate)
         continuous = nil
         ready = false

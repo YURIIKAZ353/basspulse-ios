@@ -51,6 +51,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var audioFormatInfo = ""
     @Published private(set) var fileInfo = ""
     @Published private(set) var probeRunning = false
+    @Published var probeMode: HapticProbeMode = .sharedAudio
     @Published var errorMessage: String?
 
     private var activeAnalysis: AnalysisBridge?
@@ -336,11 +337,16 @@ final class AudioController: ObservableObject {
         guard isPlaying, !probeRunning else { return }
         guard settings.intensity > 0 else { errorMessage = "Для теста установи силу выше нуля."; return }
         do {
-            try haptics.startProbe(strength: Float(settings.intensity))
+            try haptics.startProbe(strength: Float(settings.intensity), mode: probeMode)
             let token = generation
             DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
                 guard let self, self.generation == token else { return }
                 self.haptics.endProbe()
+                self.haptics.stop()
+                if self.isPlaying {
+                    do { try self.haptics.prepare() }
+                    catch { self.hapticStatus = "Возврат к обычной вибрации: \(error.localizedDescription)" }
+                }
             }
         } catch {
             diagnostics.record("probe start error: \(error as NSError)")
@@ -350,7 +356,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.3 (4)
+        BassPulse 0.1.4 (5)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -360,6 +366,7 @@ final class AudioController: ObservableObject {
         Formats: \(audioFormatInfo)
         File: \(fileInfo)
         Last error: \(lastFailure)
+        Selected probe: \(probeMode.rawValue)
         Runtime:
         \(diagnostics.report())
         Settings: \((try? String(data: JSONEncoder().encode(settings), encoding: .utf8)) ?? "?")
