@@ -93,8 +93,8 @@ final class HapticOutput {
         // engine while its previous stop is still pending.
         let retiring = engine
         engine = nil
-        retiring?.stoppedHandler = nil
-        retiring?.resetHandler = nil
+        retiring?.stoppedHandler = { _ in }
+        retiring?.resetHandler = {}
         retiring?.stop { [retiring] _ in _ = retiring }
     }
 }
