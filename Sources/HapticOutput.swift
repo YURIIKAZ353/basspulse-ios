@@ -121,13 +121,14 @@ final class HapticOutput {
         }
     }
 
-    func prepareSystemPulse(custom: Bool) throws {
+    func prepareSystemPulse(custom: Bool, blend: Bool = false) throws {
         stop()
-        let output = SystemPulseOutput(custom: custom)
+        let output = SystemPulseOutput(custom: custom, blend: blend)
         output.event = event
         try output.prepare()
         systemPulse = output
-        status(custom ? "AudioToolbox: короткие импульсы, силу проверяем на устройстве"
+        status(blend ? "AudioToolbox: энергия баса + мягкие акценты, форму проверяем на устройстве"
+                     : custom ? "AudioToolbox: короткие импульсы, силу проверяем на устройстве"
                       : "System Sound: удары по музыке, сила системная")
     }
 

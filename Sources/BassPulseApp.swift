@@ -19,14 +19,16 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.8 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.9 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
                     Picker("Воспроизведение", selection: $audio.playbackMode) {
                         ForEach(PlaybackMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.disabled(audio.isPlaying || audio.isImporting)
-                    Text(audio.playbackMode.usesSystemPulse
+                    Text(audio.playbackMode == .bassBlend
+                         ? "Энергия выбранных частот плавно нарастает и затухает, удары добавляют акценты. Можно включить любой слой или оба. Плавность фонового механизма проверяем на ощупь."
+                         : audio.playbackMode.usesSystemPulse
                          ? "Живые удары по выбранным частотам, без расчёта песни заранее. Стандартные: фиксированная системная вибрация. Сила и длительность: экспериментальные короткие импульсы 35 мс."
                          : audio.playbackMode == .planned
                          ? "Весь рисунок рассчитывается и запускается до сворачивания приложения. Музыка идёт непрерывно. Настройки выбирай до Играть; для изменения нажми Стоп."
@@ -73,13 +75,17 @@ struct ContentView: View {
                 }
                 Section("Вибрация") {
                     Toggle("Вибрация под музыку", isOn: $audio.settings.hapticsEnabled)
-                    Picker("Режим", selection: $audio.settings.mode) {
-                        Text("Удары").tag("beats")
-                        Text("Энергия баса").tag("continuous")
-                    }.pickerStyle(.segmented).disabled(audio.playbackMode.usesSystemPulse || (audio.isPlaying && audio.playbackMode == .planned))
-                    if audio.playbackMode.usesSystemPulse {
-                        Text("В системных режимах используются только удары. Частотные полосы и порог меняются во время музыки.")
-                            .font(.caption).foregroundStyle(.secondary)
+                    if audio.playbackMode == .bassBlend {
+                        blendControls
+                    } else {
+                        Picker("Режим", selection: $audio.settings.mode) {
+                            Text("Удары").tag("beats")
+                            Text("Энергия баса").tag("continuous")
+                        }.pickerStyle(.segmented).disabled(audio.playbackMode.usesSystemPulse || (audio.isPlaying && audio.playbackMode == .planned))
+                        if audio.playbackMode.usesSystemPulse {
+                            Text("В этих двух системных режимах используются только удары. Для энергии баса с акцентами выбери «Бас + удары» после Стоп.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     if audio.playbackMode == .systemPulse {
                         Text("Сила и длина стандартного импульса задаются iOS. Для регулировки силы выбери экспериментальный вариант после Стоп.")
@@ -94,9 +100,11 @@ struct ContentView: View {
                         .disabled(audio.isPlaying && audio.playbackMode == .planned)
                     Text("Чем ниже порог, тем тише бас, на который будет реакция. Например, −45 чувствительнее, чем −25.")
                         .font(.caption).foregroundStyle(.secondary)
-                    valueSlider("Резкость", value: $audio.settings.sharpness, range: 0...1, step: 0.01,
+                    if !audio.playbackMode.usesSystemPulse {
+                        valueSlider("Резкость", value: $audio.settings.sharpness, range: 0...1, step: 0.01,
                                 display: "\(Int(audio.settings.sharpness * 100)) %")
                         .disabled(audio.playbackMode.usesSystemPulse || (audio.isPlaying && audio.playbackMode == .planned))
+                    }
                     ProgressView(value: audio.drive).tint(.orange)
                         .accessibilityLabel("Энергия для вибрации")
                 }
@@ -154,6 +162,25 @@ struct ContentView: View {
                 Button("Понятно", role: .cancel) { audio.errorMessage = nil }
             } message: { Text(audio.errorMessage ?? "") }
         }
+    }
+
+    @ViewBuilder private var blendControls: some View {
+        Toggle("Энергия баса", isOn: $audio.settings.bassLayerEnabled)
+        valueSlider("Уровень энергии", value: $audio.settings.bassLayerGain, range: 0...1, step: 0.01,
+                    display: "\(Int(audio.settings.bassLayerGain * 100)) %")
+            .disabled(!audio.settings.bassLayerEnabled)
+        Toggle("Акценты ударов", isOn: $audio.settings.beatLayerEnabled)
+        valueSlider("Уровень акцентов", value: $audio.settings.beatLayerGain, range: 0...1, step: 0.01,
+                    display: "\(Int(audio.settings.beatLayerGain * 100)) %")
+            .disabled(!audio.settings.beatLayerEnabled)
+        valueSlider("Нарастание баса", value: $audio.settings.riseMS, range: 10...160, step: 10,
+                    display: "\(Int(audio.settings.riseMS)) мс")
+            .disabled(!audio.settings.bassLayerEnabled)
+        valueSlider("Затухание баса", value: $audio.settings.fallMS, range: 40...500, step: 10,
+                    display: "\(Int(audio.settings.fallMS)) мс")
+            .disabled(!audio.settings.bassLayerEnabled)
+        Text("Оба слоя смешиваются в одну огибающую. Общая сила управляет результатом. Для более текучего ощущения увеличь нарастание и затухание, а уровень акцентов уменьши.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private func bandControls(_ index: Int) -> some View {

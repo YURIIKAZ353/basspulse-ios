@@ -25,6 +25,10 @@ jobs:
           build/dsp-tests
       - name: Install project generator
         run: brew install xcodegen
+      - name: Test bass and beat envelope mixing and settings migration
+        run: |
+          swiftc Sources/DSP.swift Sources/BassBlendEnvelope.swift Tests/Envelope/main.swift -o build/envelope-tests
+          build/envelope-tests
       - name: Test runtime diagnostics
         run: |
           swiftc Sources/RuntimeDiagnostics.swift Tests/Diagnostics/main.swift -o build/diagnostics-tests

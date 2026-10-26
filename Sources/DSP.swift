@@ -14,6 +14,37 @@ struct PulseSettings: Codable, Equatable {
     var delayMS: Double = 0
     var mode: String = "beats"
     var hapticsEnabled: Bool = true
+    var bassLayerEnabled: Bool = true
+    var beatLayerEnabled: Bool = true
+    var bassLayerGain: Double = 0.75
+    var beatLayerGain: Double = 0.35
+    var riseMS: Double = 60
+    var fallMS: Double = 220
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case bands, intensity, thresholdDB, sharpness, delayMS, mode, hapticsEnabled
+        case bassLayerEnabled, beatLayerEnabled, bassLayerGain, beatLayerGain, riseMS, fallMS
+    }
+
+    init(from decoder: Decoder) throws {
+        self.init()
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        bands = try values.decodeIfPresent([FrequencyBand].self, forKey: .bands) ?? bands
+        intensity = try values.decodeIfPresent(Double.self, forKey: .intensity) ?? intensity
+        thresholdDB = try values.decodeIfPresent(Double.self, forKey: .thresholdDB) ?? thresholdDB
+        sharpness = try values.decodeIfPresent(Double.self, forKey: .sharpness) ?? sharpness
+        delayMS = try values.decodeIfPresent(Double.self, forKey: .delayMS) ?? delayMS
+        mode = try values.decodeIfPresent(String.self, forKey: .mode) ?? mode
+        hapticsEnabled = try values.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? hapticsEnabled
+        bassLayerEnabled = try values.decodeIfPresent(Bool.self, forKey: .bassLayerEnabled) ?? bassLayerEnabled
+        beatLayerEnabled = try values.decodeIfPresent(Bool.self, forKey: .beatLayerEnabled) ?? beatLayerEnabled
+        bassLayerGain = try values.decodeIfPresent(Double.self, forKey: .bassLayerGain) ?? bassLayerGain
+        beatLayerGain = try values.decodeIfPresent(Double.self, forKey: .beatLayerGain) ?? beatLayerGain
+        riseMS = try values.decodeIfPresent(Double.self, forKey: .riseMS) ?? riseMS
+        fallMS = try values.decodeIfPresent(Double.self, forKey: .fallMS) ?? fallMS
+    }
 }
 
 // RBJ Butterworth filters. The selected frequencies describe the audio detector,
