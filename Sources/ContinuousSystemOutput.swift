@@ -12,7 +12,7 @@ final class ContinuousSystemOutput {
     var event: (String) -> Void = { _ in }
     var status: (String) -> Void = { _ in }
 
-    func prepare() throws {
+    func prepare(requestBackground: Bool = true) throws {
         let result = BPCreateSystemCategoryEngine(AVAudioSession.sharedInstance())
         event("ContinuousSystem factory: \(result.detail)")
         guard let engine = result.engine else {
@@ -37,6 +37,16 @@ final class ContinuousSystemOutput {
             }
         }
         try engine.start()
+        if requestBackground {
+            let request = BPRequestBackgroundHaptics(engine)
+            event(request.detail)
+            guard request.engine != nil else {
+                throw NSError(domain: "BassPulse.BackgroundGate", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: request.detail])
+            }
+        } else {
+            event("BackgroundGate disabled by user: baseline 0.1.10 behavior")
+        }
         let continuous = CHHapticEvent(eventType: .hapticContinuous, parameters: [
             CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
             CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.25)
@@ -50,7 +60,8 @@ final class ContinuousSystemOutput {
         self.player = player
         ready = true
         event("ContinuousSystem player started ONCE; continuous loop=29s; subsequent calls only sendParameters")
-        status("SystemSound-категория принята; один непрерывный проигрыватель, фон ещё проверяем")
+        status(requestBackground ? "Запрос AllowBackgroundHaptics отправлен; реальную работу фона проверяем"
+                                 : "Непрерывный проигрыватель без фонового запроса • как 0.1.10")
     }
 
     func apply(level: Double, beat: Bool, settings: PulseSettings) -> Bool {

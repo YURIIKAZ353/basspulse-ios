@@ -9,4 +9,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 FOUNDATION_EXPORT BPSystemCategoryResult *BPCreateSystemCategoryEngine(AVAudioSession *session);
+FOUNDATION_EXPORT BPSystemCategoryResult *BPRequestBackgroundHaptics(CHHapticEngine *engine);
 NS_ASSUME_NONNULL_END

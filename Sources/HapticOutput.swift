@@ -123,12 +123,12 @@ final class HapticOutput {
         }
     }
 
-    func prepareContinuousSystem() throws {
+    func prepareContinuousSystem(requestBackground: Bool) throws {
         stop()
         let output = ContinuousSystemOutput()
         output.event = event
         output.status = status
-        do { try output.prepare() }
+        do { try output.prepare(requestBackground: requestBackground) }
         catch { output.stop(); throw error }
         continuousSystem = output
     }

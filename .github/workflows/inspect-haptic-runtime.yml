@@ -34,7 +34,7 @@ jobs:
             -fobjc-arc -framework Foundation -framework CoreHaptics -framework AudioToolbox -framework AVFoundation -framework CoreMedia \
             Research/RuntimeInspect.m Research/MediaRouteProbe.m -o research-output/runtime-inspect
           codesign --force --sign - research-output/runtime-inspect
-          xcrun clang -arch arm64 -fobjc-arc -framework Foundation -framework CoreHaptics \
+          xcrun clang -arch arm64 -DBP_HOST=1 -fobjc-arc -framework Foundation -framework CoreHaptics \
             -framework AudioToolbox -framework AVFoundation -framework CoreMedia \
             Research/RuntimeInspect.m Research/MediaRouteProbe.m -o research-output/runtime-inspect-host
       - name: Inspect loaded simulator frameworks

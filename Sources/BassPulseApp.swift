@@ -19,7 +19,7 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.10 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
+                    Text("Прототип 0.1.11 • свои аудиофайлы. Spotify, YouTube и захват чужого звука пока не подключены.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {
@@ -27,7 +27,7 @@ struct ContentView: View {
                         ForEach(PlaybackMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.disabled(audio.isPlaying || audio.isImporting)
                     Text(audio.playbackMode == .systemContinuous
-                         ? "Один непрерывный проигрыватель с изменяемой силой и резкостью, без повторных коротких запусков. Проверяем внутреннюю категорию SystemSound; её принятие и фон отражаются в диагностике."
+                         ? "Один непрерывный проигрыватель с изменяемой силой и резкостью. Новый опыт передаёт серверу отдельный запрос фоновой вибрации; приём запроса и реальную отдачу проверяем отдельно."
                          : audio.playbackMode == .bassBlend
                          ? "Предыдущий импульсный опыт 0.1.9. На устройстве ощущается стуками, плавность не подтверждена. Оставлен для сравнения."
                          : audio.playbackMode.usesSystemPulse
@@ -38,6 +38,12 @@ struct ContentView: View {
                          ? "Предыдущий опыт с секундными участками музыки. Оставлен для сравнения."
                          : "Музыка проигрывается непрерывно, без нарезки. Настройки частот и силы применяются сразу. Фоновую вибрацию нового варианта ещё проверяем.")
                         .font(.caption).foregroundStyle(.secondary)
+                    if audio.playbackMode == .systemContinuous {
+                        Toggle("Запрос фоновой вибрации • опыт", isOn: $audio.requestBackgroundHaptics)
+                            .disabled(audio.isPlaying || audio.isImporting)
+                        Text("Выключенный запрос возвращает поведение 0.1.10. Для сравнения нажми Стоп, переключи и запусти снова.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if audio.playbackMode == .liveShared || audio.playbackMode == .planned {
                         Picker("Аудиоэлемент для проверки фона", selection: $audio.supportAudioLevel) {
                             Text("Нулевая громкость").tag(0.0)

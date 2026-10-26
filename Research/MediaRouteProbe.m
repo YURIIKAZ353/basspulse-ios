@@ -1,6 +1,8 @@
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
+#if !BP_HOST
 #import <CoreHaptics/CoreHaptics.h>
+#endif
 
 NSDictionary *BPProbeMediaRoutes(void) {
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
@@ -15,8 +17,12 @@ NSDictionary *BPProbeMediaRoutes(void) {
                                                                     @{@"Time": @4, @"ParameterValue": @0}]}}
         ]};
         NSError *error = nil;
+#if !BP_HOST
         CHHapticPattern *validated = [[CHHapticPattern alloc] initWithDictionary:pattern error:&error];
         result[@"coreHapticPatternValid"] = @(validated != nil && error == nil);
+#else
+        result[@"coreHapticPatternValid"] = @"not checked on host fallback";
+#endif
         if (error) result[@"patternError"] = error.description;
         NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"BassPulse-media-route.ahap"]];
         [[NSJSONSerialization dataWithJSONObject:pattern options:0 error:&error] writeToURL:url atomically:YES];

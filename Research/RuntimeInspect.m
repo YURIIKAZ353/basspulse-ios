@@ -1,5 +1,4 @@
 #import <Foundation/Foundation.h>
-#import <CoreHaptics/CoreHaptics.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>

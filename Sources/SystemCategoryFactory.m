@@ -13,6 +13,14 @@
 @property(nonatomic, readonly) NSString *priority;
 @end
 
+@interface NSObject (BPPrivateCapabilities)
+- (id)player;
+- (id)client;
+- (unsigned long long)clientID;
+- (void)queryServerCapabilities:(NSDictionary *)capabilities
+                         reply:(void (^)(NSDictionary * _Nullable, NSError * _Nullable))reply;
+@end
+
 @implementation BPSystemCategoryResult
 @end
 
@@ -59,6 +67,42 @@ BPSystemCategoryResult *BPCreateSystemCategoryEngine(AVAudioSession *session) {
                          exception.name, exception.reason ?: @""];
     } @finally {
         dlclose(handle);
+    }
+    return result;
+}
+
+BPSystemCategoryResult *BPRequestBackgroundHaptics(CHHapticEngine *engine) {
+    BPSystemCategoryResult *result = [BPSystemCategoryResult new];
+    result.detail = @"BackgroundGate: interface unavailable";
+    @try {
+        if (![engine respondsToSelector:@selector(player)]) return result;
+        id player = [engine player];
+        if (!player || ![player respondsToSelector:@selector(queryServerCapabilities:reply:)]) return result;
+        NSString *clientLabel = @"unknown";
+        if ([player respondsToSelector:@selector(client)]) {
+            id client = [player client];
+            if ([client respondsToSelector:@selector(clientID)]) {
+                clientLabel = [NSString stringWithFormat:@"0x%llx", [client clientID]];
+            }
+        }
+        __block BOOL replied = NO;
+        __block NSError *replyError = nil;
+        __block NSArray *replyKeys = nil;
+        // In the inspected iOS 26.1 implementation this is a synchronous XPC
+        // capability query. Its AllowBackgroundHaptics entry updates the client
+        // policy. We do not patch entitlements, memory, priority or other clients.
+        [player queryServerCapabilities:@{@"RequestedLocality": @"Default", @"AllowBackgroundHaptics": @YES}
+                                  reply:^(NSDictionary *capabilities, NSError *error) {
+            replied = YES;
+            replyError = error;
+            replyKeys = [capabilities.allKeys sortedArrayUsingSelector:@selector(compare:)];
+        }];
+        result.detail = [NSString stringWithFormat:
+            @"BackgroundGate client=%@ requested AllowBackgroundHaptics=YES replied=%@ error=%@ replyKeys=%@; API reply is not physical confirmation",
+            clientLabel, replied ? @"YES" : @"NO", replyError ?: @"none", replyKeys ?: @[]];
+        if (replied && !replyError) result.engine = engine;
+    } @catch (NSException *exception) {
+        result.detail = [NSString stringWithFormat:@"BackgroundGate exception: %@ %@", exception.name, exception.reason ?: @""];
     }
     return result;
 }
