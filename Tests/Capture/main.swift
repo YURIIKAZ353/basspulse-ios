@@ -20,7 +20,7 @@ func sampleBuffer(bytes: Data, format: AVAudioFormat, count: Int) -> CMSampleBuf
     }
     var sample: CMSampleBuffer?
     require(CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: kCFAllocatorDefault,
-        dataBuffer: block, formatDescription: description!, sampleCount: count,
+        dataBuffer: block!, formatDescription: description!, sampleCount: count,
         presentationTimeStamp: .zero, packetDescriptions: nil, sampleBufferOut: &sample) == noErr, "Create PCM sample")
     return sample!
 }
@@ -57,3 +57,4 @@ let silentFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44
 let silence = try decoder.decode(sampleBuffer(bytes: Data(repeating: 0, count: 512 * 4), format: silentFormat, count: 512))
 require(silence.frameLength == 512 && silence.floatChannelData![0][200] == 0, "Silence must remain silence")
 print("PASS: captured CoreMedia PCM Int16/Float32, stereo anti-phase, mono silence, frame count, converter format changes")
+
