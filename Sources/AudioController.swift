@@ -324,7 +324,7 @@ final class AudioController: ObservableObject {
         }
     }
 
-    func startExternalCapture() {
+    func startExternalCapture(useDirectTap: Bool = false) {
         guard !isPlaying, !isImporting else { return }
         guard #available(iOS 27.0, *) else {
             errorMessage = "Для захвата звука других приложений нужна iOS 27 или новее."
@@ -348,8 +348,15 @@ final class AudioController: ObservableObject {
             analysis.diagnostics = diagnostics
             analysis.configure(settings)
             activeAnalysis = analysis
-            let capture = SystemAudioCapture()
-            capture.audioOutputOnly = captureAudioOutputOnly
+            let capture: AudioCaptureSource
+            if useDirectTap {
+                capture = DirectAudioCapture()
+                captureConfigurationSnapshot = "DirectTap system audio; own PID excluded; no SCStream; no entitlement changes"
+            } else {
+                let screen = SystemAudioCapture()
+                screen.audioOutputOnly = captureAudioOutputOnly
+                capture = screen
+            }
             capture.onEvent = { [weak self, weak diagnostics] message in
                 diagnostics?.record(message)
                 // Preserve startup metadata outside the rolling event log.
@@ -371,8 +378,8 @@ final class AudioController: ObservableObject {
             capture.onStarted = { [weak self] in
                 guard let self, self.generation == token else { return }
                 self.restoreCaptureMixing("after capture start")
-                self.status = "Слушаю системный звук. Открой приложение с музыкой или видео."
-                self.audioFormatInfo = "Захват других приложений: 48 кГц, стерео; формат буферов проверяется при получении"
+                self.status = useDirectTap ? "Аудиоточка запущена. Проверяем поступление звука." : "Слушаю системный звук. Открой приложение с музыкой или видео."
+                self.audioFormatInfo = useDirectTap ? "DirectTap: Float32, стерео; приход PCM подтверждается отдельно" : "Захват других приложений: 48 кГц, стерео; формат буферов проверяется при получении"
             }
             capture.onCancelled = { [weak self] in
                 guard let self, self.generation == token else { return }
@@ -381,7 +388,7 @@ final class AudioController: ObservableObject {
             }
             capture.onError = { [weak self] error in
                 guard let self, self.generation == token else { return }
-                let detail = self.describe(error, stage: "захват системного звука")
+                let detail = self.describe(error, stage: useDirectTap ? "прямая аудиоточка" : "захват системного звука")
                 self.diagnostics.record("System capture stopped/error: \(error as NSError)")
                 self.stop()
                 self.lastFailure = detail
@@ -393,9 +400,10 @@ final class AudioController: ObservableObject {
             isPlaying = true
             lastAnalysis = .distantPast
             maximumDeliveryTime = 0
-            captureInfo = "Выбери весь экран для перехода между приложениями"
-            status = "Ожидаю выбор источника в системном окне"
+            captureInfo = useDirectTap ? "Пробный прямой захват: ждём PCM, без записи экрана" : "Выбери весь экран для перехода между приложениями"
+            status = useDirectTap ? "Проверяю доступ к аудиоточке" : "Ожидаю выбор источника в системном окне"
             capture.start()
+            guard generation == token, isCapturingExternal else { return }
             watchdog = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                 guard let self, self.generation == token, self.isCapturingExternal else { return }
                 if Date().timeIntervalSince(self.lastAnalysis) > 0.5 {
@@ -517,7 +525,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.14 (15)
+        BassPulse 0.1.15 (16)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)

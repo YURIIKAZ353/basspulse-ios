@@ -60,6 +60,11 @@ struct ContentView: View {
                     Button { audio.startExternalCapture() } label: {
                         Label("Звук других приложений", systemImage: "apps.iphone")
                     }.disabled(audio.isPlaying || audio.isImporting)
+                    Button { audio.startExternalCapture(useDirectTap: true) } label: {
+                        Label("Прямой аудиозахват • опыт", systemImage: "waveform.path")
+                    }.disabled(audio.isPlaying || audio.isImporting)
+                    Text("Отдельная проверка аудиоточки без записи экрана. iOS может отказать в доступе; точный результат будет в диагностике.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Toggle("Только аудиовыход • опыт", isOn: $audio.captureAudioOutputOnly)
                         .disabled(audio.isPlaying || audio.isImporting)
                     Text("Включено — только аудиобуферы. Выключено — прежний поток с видео. Проверяем, влияет ли это на остановку при блокировке.")

@@ -3,6 +3,12 @@ import CoreMedia
 import ScreenCaptureKit
 
 protocol AudioCaptureSource: AnyObject {
+    var onPCM: (AVAudioPCMBuffer, TimeInterval) -> Void { get set }
+    var onEvent: (String) -> Void { get set }
+    var onStarted: () -> Void { get set }
+    var onCancelled: () -> Void { get set }
+    var onError: (Error) -> Void { get set }
+    var onSignal: (String) -> Void { get set }
     func start()
     func stop()
 }
