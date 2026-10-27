@@ -45,6 +45,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var isCapturingExternal = false
     @Published private(set) var captureInfo = ""
     @Published var captureAudioOutputOnly = true
+    @Published var directTapPIDOverride = ""
     private var captureConfigurationSnapshot = ""
     private var captureAccessSnapshot = ""
     private var captureSessionSnapshots: [String] = []
@@ -327,6 +328,21 @@ final class AudioController: ObservableObject {
 
     func startExternalCapture(useDirectTap: Bool = false) {
         guard !isPlaying, !isImporting else { return }
+        if useDirectTap && AVAudioSession.sharedInstance().recordPermission != .granted {
+            if AVAudioSession.sharedInstance().recordPermission == .denied {
+                errorMessage = "Для проверки обычной аудиоочереди нужно разрешение на запись в настройках iOS для BassPulse. Обычный захват через выбор экрана этого разрешения не требует."
+                return
+            }
+            let permissionToken = generation
+            AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == permissionToken, !self.isPlaying else { return }
+                    if granted { self.startExternalCapture(useDirectTap: true) }
+                    else { self.errorMessage = "Разрешение на запись не выдано; пробная аудиоочередь не запускалась." }
+                }
+            }
+            return
+        }
         guard #available(iOS 27.0, *) else {
             errorMessage = "Для захвата звука других приложений нужна iOS 27 или новее."
             return
@@ -339,7 +355,8 @@ final class AudioController: ObservableObject {
         captureSessionSnapshots = []
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setCategory(useDirectTap ? .playAndRecord : .playback, mode: .default,
+                                    options: useDirectTap ? [.mixWithOthers, .allowBluetoothA2DP] : [.mixWithOthers])
             try session.setActive(true)
             recordCaptureSession("before haptics")
             try prepareLiveHaptics()
@@ -352,8 +369,9 @@ final class AudioController: ObservableObject {
             activeAnalysis = analysis
             let capture: AudioCaptureSource
             if useDirectTap {
-                capture = DirectAudioCapture()
-                captureConfigurationSnapshot = "DirectTap system audio; own PID excluded; no SCStream; no entitlement changes"
+                let pid = Int32(directTapPIDOverride.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+                capture = DirectAudioCapture(sourcePID: pid)
+                captureConfigurationSnapshot = "DirectTap standard input flags=0, process-specific; overridePID=\(pid); no SCStream; no entitlement changes"
             } else {
                 let screen = SystemAudioCapture()
                 screen.audioOutputOnly = captureAudioOutputOnly
@@ -530,7 +548,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.16 (17)
+        BassPulse 0.1.17 (18)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)

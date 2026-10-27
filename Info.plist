@@ -15,5 +15,6 @@
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
   <key>UIBackgroundModes</key><array><string>audio</string><string>screen-capture</string></array>
   <key>NSScreenCaptureUsageDescription</key><string>Анализ звука воспроизводимых приложений для вибрации в такт музыке. Контент не сохраняется и не отправляется.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Для экспериментальной аудиоочереди требуется разрешение на запись. Затем BassPulse пытается подключить звук приложения-источника. При отказе подключения очередь не запускается; запись в файл не создаётся.</string>
   <key>ITSAppUsesNonExemptEncryption</key><false/>
 </dict></plist>

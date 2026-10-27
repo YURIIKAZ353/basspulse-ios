@@ -4,13 +4,24 @@
 #import <objc/runtime.h>
 #import <unistd.h>
 #import <math.h>
+#import <dlfcn.h>
 
 // Guarded declarations of the tap descriptions used by Apple's audio service.
 // No entitlements are added or modified. A server refusal is reported verbatim.
 @interface NSObject (BPAudioTapSelectors)
 - (instancetype)initSystemTapWithFormat:(AVAudioFormat *)format excludePIDs:(NSArray<NSNumber *> *)pids;
 - (instancetype)initWithTapDescription:(id)description;
+- (instancetype)initProcessTapWithFormat:(AVAudioFormat *)format PID:(int)pid;
 @end
+
+void BPFindNowPlayingProcess(void (^completion)(int)) {
+    void *handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW);
+    typedef void (*GetPID)(dispatch_queue_t, void (^)(int));
+    GetPID getPID = handle ? (GetPID)dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationPID") : NULL;
+    if (!getPID) { completion(0); return; }
+    // No playback control, entitlement alteration or process enumeration.
+    getPID(dispatch_get_main_queue(), completion);
+}
 
 @interface BPDirectAudioTap () {
     AudioQueueRef _queue;
@@ -49,7 +60,10 @@ static void BPDirectInput(void *context, AudioQueueRef queue, AudioQueueBufferRe
     [self stop];
     Class descriptionClass = NSClassFromString(@"ATAudioTapDescription");
     Class tapClass = NSClassFromString(@"ATAudioTap");
-    SEL initializer = @selector(initSystemTapWithFormat:excludePIDs:);
+    if (self.useStandardInput && self.targetProcessID <= 0) {
+        return [self fail:@"a positive source PID is required; microphone queue not started" status:-6 error:error];
+    }
+    SEL initializer = self.targetProcessID > 0 ? @selector(initProcessTapWithFormat:PID:) : @selector(initSystemTapWithFormat:excludePIDs:);
     if (!descriptionClass || !tapClass ||
         ![descriptionClass instancesRespondToSelector:initializer] ||
         ![tapClass instancesRespondToSelector:@selector(initWithTapDescription:)]) {
@@ -60,7 +74,9 @@ static void BPDirectInput(void *context, AudioQueueRef queue, AudioQueueBufferRe
     AVAudioFormat *interleaved = [[AVAudioFormat alloc] initWithCommonFormat:AVAudioPCMFormatFloat32
                                                                sampleRate:48000 channels:2 interleaved:YES];
     @try {
-        id description = [[descriptionClass alloc] initSystemTapWithFormat:interleaved excludePIDs:@[@(getpid())]];
+        id description = self.targetProcessID > 0
+            ? [[descriptionClass alloc] initProcessTapWithFormat:interleaved PID:self.targetProcessID]
+            : [[descriptionClass alloc] initSystemTapWithFormat:interleaved excludePIDs:@[@(getpid())]];
         if (description) _tap = [[tapClass alloc] initWithTapDescription:description];
     } @catch (NSException *exception) {
         self.onEvent([NSString stringWithFormat:@"DirectTap exception: %@ %@", exception.name, exception.reason]);
@@ -68,10 +84,12 @@ static void BPDirectInput(void *context, AudioQueueRef queue, AudioQueueBufferRe
     }
     if (!_tap) return [self fail:@"nil tap description" status:-3 error:error];
     AudioStreamBasicDescription asbd = *interleaved.streamDescription;
-    // 0x800 is the process-tap queue flag used by replayd for app/system audio.
-    // Never fall back to a microphone input queue if this request is refused.
-    OSStatus status = AudioQueueNewInput(&asbd, BPDirectInput, (__bridge void *)self, NULL, NULL, 0x800, &_queue);
-    self.onEvent([NSString stringWithFormat:@"DirectTap AudioQueueNewInput flags=0x800 status=%d", (int)status]);
+    // Compare the privileged creation flag with a normal, user-authorized input
+    // queue. The latter is NOT started unless the process tap is accepted first.
+    UInt32 flags = self.useStandardInput ? 0 : 0x800;
+    self.onEvent([NSString stringWithFormat:@"DirectTap sourcePID=%d creationFlags=0x%x permission=%lu", self.targetProcessID, (unsigned)flags, (unsigned long)AVAudioSession.sharedInstance.recordPermission]);
+    OSStatus status = AudioQueueNewInput(&asbd, BPDirectInput, (__bridge void *)self, NULL, NULL, flags, &_queue);
+    self.onEvent([NSString stringWithFormat:@"DirectTap AudioQueueNewInput flags=0x%x status=%d", (unsigned)flags, (int)status]);
     self.onEvent([@"DirectTap access probe: " stringByAppendingString:BPDescribeAudioQueueAccess()]);
     if (status != noErr) return [self fail:@"AudioQueueNewInput" status:status error:error];
     // 'qtob': the tap-object property used by replayd; value is the ObjC object,

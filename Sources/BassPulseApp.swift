@@ -142,6 +142,11 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Диагностика") {
+                    TextField("PID приложения-источника (пусто — авто)", text: $audio.directTapPIDOverride)
+                        .keyboardType(.numberPad)
+                        .disabled(audio.isPlaying || audio.isImporting)
+                    Text("Для проверки аудиоточки конкретного приложения. PID меняется после перезапуска приложения; автоматический выбор использует текущее воспроизведение.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Picker("Способ теста", selection: $audio.probeMode) {
                         ForEach(HapticProbeMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.disabled(audio.probeRunning)
