@@ -79,9 +79,26 @@ int main(int argc, char **argv) {
         NSMutableDictionary *functions = [NSMutableDictionary dictionary];
         for (NSString *name in @[@"AudioServicesPlaySystemSoundWithVibration", @"AudioServicesPlaySystemSoundWithVibrationAndFlags",
                                 @"AudioServicesStartSystemSoundWithVibration", @"AudioServicesPlaySystemSoundWithOptions",
-                                @"HapticServerManager_VibeEnginePlay", @"HapticServerManager_VibeEngineInitialize"]) {
+                                @"HapticServerManager_VibeEnginePlay", @"HapticServerManager_VibeEngineInitialize",
+                                @"AudioQueueNewInput", @"AudioQueueNewInputWithAudioSession", @"AudioQueueNewInputWithDispatchQueue"]) {
             void *address = dlsym(RTLD_DEFAULT, name.UTF8String);
             functions[name] = address ? dumpCode(address) : @{ @"present": @NO };
+        }
+        // Inspect helper code only; do not create or start an audio queue here.
+        for (unsigned depth = 0; depth < 3 && functions.count < 40; depth++) {
+            NSDictionary *snapshot = [functions copy];
+            for (NSString *name in snapshot) {
+                if (![name containsString:@"AudioQueue"] && ![name containsString:@"ClientQueue"] && ![name containsString:@"permission"] && ![name containsString:@"Permission"]) continue;
+                for (NSDictionary *branch in snapshot[name][@"branches"]) {
+                    NSDictionary *targetLabel = branch[@"label"];
+                    NSString *symbol = targetLabel[@"symbol"] ?: @"";
+                    NSString *lower = symbol.lowercaseString;
+                    if (functions[symbol] || functions.count >= 40 || [targetLabel[@"offset"] longLongValue] != 0) continue;
+                    if ([lower containsString:@"audioqueue"] || [lower containsString:@"clientqueue"] || [lower containsString:@"permission"] || [lower containsString:@"entitlement"]) {
+                        functions[symbol] = dumpCode((const void *)[branch[@"target"] unsignedLongLongValue]);
+                    }
+                }
+            }
         }
         result[@"functions"] = functions;
         NSMutableDictionary *constants = [NSMutableDictionary dictionary];
@@ -119,4 +136,3 @@ int main(int argc, char **argv) {
     }
     return 0;
 }
-
