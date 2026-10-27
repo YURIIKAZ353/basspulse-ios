@@ -58,6 +58,8 @@ jobs:
           lines = open('research-output/runtime-raw.txt').read().splitlines()
           data = next(json.loads(line.split('BPRESEARCH:', 1)[1]) for line in lines if line.startswith('BPRESEARCH:'))
           json.dump(data, open('research-output/runtime.json', 'w'), indent=2)
+          if data['device'] == 'host':
+              raise SystemExit('Only HOST fallback collected; this is not iOS permission evidence')
           print(data['os'], data['device'])
           print('Constants:', data['constants'])
           print('Methods:', {c: len(v.get('methods', {})) for c, v in data['classes'].items()})

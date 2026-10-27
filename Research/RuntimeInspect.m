@@ -3,7 +3,23 @@
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <mach/mach.h>
+#import <unistd.h>
+#import <stdatomic.h>
 extern NSDictionary *BPProbeMediaRoutes(void);
+static uintptr_t readPointer(uintptr_t address);
+
+static NSString *readText(uintptr_t address) {
+    char buffer[192] = {0};
+    vm_size_t size = 0;
+    if (vm_read_overwrite(mach_task_self(), address, sizeof(buffer), (vm_address_t)buffer, &size) != KERN_SUCCESS) return nil;
+    NSUInteger n = 0;
+    while (n < size && buffer[n]) {
+        if ((unsigned char)buffer[n] < 32 || (unsigned char)buffer[n] > 126) return nil;
+        n++;
+    }
+    if (n < 4 || n >= size) return nil;
+    return [[NSString alloc] initWithBytes:buffer length:n encoding:NSUTF8StringEncoding];
+}
 
 static NSDictionary *label(const void *address) {
     Dl_info info = {0};
@@ -21,9 +37,22 @@ static NSDictionary *dumpCode(const void *address) {
                                             sizeof(bytes), (vm_address_t)bytes, &readSize);
     if (status != KERN_SUCCESS) return @{ @"readError": @(status) };
     NSMutableArray *branches = [NSMutableArray array];
+    NSMutableArray *references = [NSMutableArray array];
     for (NSUInteger offset = 0; offset + 4 <= readSize; offset += 4) {
         uint32_t instruction = 0;
         memcpy(&instruction, bytes + offset, sizeof(instruction));
+        if (offset + 8 <= readSize && (instruction & 0x9f000000u) == 0x90000000u) {
+            uint32_t next = 0;
+            memcpy(&next, bytes + offset + 4, sizeof(next));
+            if ((next & 0xffc00000u) == 0x91000000u && ((next >> 5) & 31) == (instruction & 31)) {
+                int64_t immediate = (((instruction >> 5) & 0x7ffff) << 2) | ((instruction >> 29) & 3);
+                if (immediate & (1 << 20)) immediate -= (1 << 21);
+                uintptr_t ref = (((uintptr_t)address + offset) & ~(uintptr_t)4095) + immediate * 4096 + ((next >> 10) & 4095);
+                NSString *value = readText(ref);
+                if (!value && readPointer(ref + 24) > 3 && readPointer(ref + 24) < 190) value = readText(readPointer(ref + 16));
+                if (value) [references addObject:@{ @"at": @(offset), @"text": value }];
+            }
+        }
         if ((instruction & 0x7c000000u) == 0x14000000u) {
             int64_t delta = ((int64_t)(instruction & 0x03ffffffu) << 38) >> 36;
             const void *target = (const void *)((uintptr_t)address + offset + delta);
@@ -32,7 +61,7 @@ static NSDictionary *dumpCode(const void *address) {
     }
     return @{ @"address": @((uintptr_t)address), @"label": label(address),
               @"bytes": [[NSData dataWithBytes:bytes length:readSize] base64EncodedStringWithOptions:0],
-              @"branches": branches };
+              @"branches": branches, @"references": references };
 }
 
 static uintptr_t readPointer(uintptr_t address) {
@@ -55,9 +84,18 @@ static NSDictionary *inspectQueueImplementation(NSMutableDictionary *functions) 
     format.mFramesPerPacket = 1;
     format.mChannelsPerFrame = 1;
     format.mBitsPerChannel = 32;
-    AudioQueueRef queue = NULL;
-    OSStatus status = AudioQueueNewOutput(&format, unusedOutput, NULL, NULL, NULL, 0, &queue);
-    if (queue) AudioQueueDispose(queue, true);
+    // Simulator audio IPC can stall in a CLI. Initialize on a worker and bound
+    // the wait; the API singleton is published before queue/server creation.
+    __block _Atomic(OSStatus) status = INT32_MIN;
+    dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        AudioStreamBasicDescription localFormat = format;
+        AudioQueueRef queue = NULL;
+        status = AudioQueueNewOutput(&localFormat, unusedOutput, NULL, NULL, NULL, 0, &queue);
+        if (queue) AudioQueueDispose(queue, true);
+        dispatch_semaphore_signal(completed);
+    });
+    dispatch_semaphore_wait(completed, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
     uintptr_t address = (uintptr_t)dlsym(RTLD_DEFAULT, "AudioQueueNewInput");
     if (!address) return @{ @"idleOutputStatus": @(status), @"error": @"no input wrapper" };
     uint32_t words[48] = {0};
@@ -191,6 +229,9 @@ int main(int argc, char **argv) {
         result[@"mediaRoutes"] = BPProbeMediaRoutes();
         NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
         printf("BPRESEARCH:%s\n", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
+        fflush(stdout);
+        // Do not run global AudioQueue teardown against an IPC-stalled worker.
+        _exit(0);
     }
     return 0;
 }
