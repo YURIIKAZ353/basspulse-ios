@@ -45,6 +45,8 @@ final class AudioController: ObservableObject {
     @Published private(set) var isCapturingExternal = false
     @Published private(set) var captureInfo = ""
     @Published var captureAudioOutputOnly = true
+    private var captureConfigurationSnapshot = ""
+    private var captureSessionSnapshots: [String] = []
     @Published private(set) var isImporting = false
     @Published private(set) var levels: [Double] = [-100, -100]
     @Published private(set) var drive = 0.0
@@ -331,11 +333,15 @@ final class AudioController: ObservableObject {
         stop(deactivateSession: false)
         playbackMode = .systemContinuous
         lastFailure = ""
+        captureConfigurationSnapshot = ""
+        captureSessionSnapshots = []
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
+            recordCaptureSession("before haptics")
             try prepareLiveHaptics()
+            restoreCaptureMixing("after haptics")
             updateRoute()
             let token = generation
             let analysis = AnalysisBridge()
@@ -344,7 +350,13 @@ final class AudioController: ObservableObject {
             activeAnalysis = analysis
             let capture = SystemAudioCapture()
             capture.audioOutputOnly = captureAudioOutputOnly
-            capture.onEvent = { [weak diagnostics] message in diagnostics?.record(message) }
+            capture.onEvent = { [weak self, weak diagnostics] message in
+                diagnostics?.record(message)
+                // Preserve startup metadata outside the rolling event log.
+                if message.hasPrefix("Capture configuration:") {
+                    self?.captureConfigurationSnapshot = message
+                }
+            }
             capture.onPCM = { [weak self] buffer, time in
                 guard let result = analysis.process(buffer) else { return }
                 DispatchQueue.main.async {
@@ -358,6 +370,7 @@ final class AudioController: ObservableObject {
             }
             capture.onStarted = { [weak self] in
                 guard let self, self.generation == token else { return }
+                self.restoreCaptureMixing("after capture start")
                 self.status = "Слушаю системный звук. Открой приложение с музыкой или видео."
                 self.audioFormatInfo = "Захват других приложений: 48 кГц, стерео; формат буферов проверяется при получении"
             }
@@ -504,7 +517,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.13 (14)
+        BassPulse 0.1.14 (15)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -520,6 +533,9 @@ final class AudioController: ObservableObject {
         Persistent SystemSound category player: \(playbackMode == .systemContinuous); see factory actualCategory and dynamic update events
         Background capability request enabled: \(requestBackgroundHaptics)
         External capture: \(isCapturingExternal); \(captureInfo)
+        Capture startup configuration: \(captureConfigurationSnapshot)
+        Capture session snapshots:
+        \(captureSessionSnapshots.joined(separator: "\n"))
         Playback backend: \(playbackMode == .systemContinuous ? "AVAudioEngine music + SystemSound-category Core Haptics; ONE continuous player + dynamic parameters, no repeated short starts" : playbackMode.usesSystemPulse ? "continuous AVAudioEngine + live DSP + AudioToolbox pulses; no preplanned pattern and no Core Haptics engine" : playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")
         Runtime:
         \(diagnostics.report())
@@ -531,6 +547,33 @@ final class AudioController: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         route = session.currentRoute.outputs.map { $0.portName }.joined(separator: ", ")
         latencyMS = Int(session.outputLatency * 1000)
+    }
+
+    private func recordCaptureSession(_ stage: String) {
+        let session = AVAudioSession.sharedInstance()
+        let ports = session.currentRoute.outputs.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ",")
+        let message = "\(stage): category=\(session.category.rawValue) options=\(session.categoryOptions.rawValue) duckOthers=\(session.categoryOptions.contains(.duckOthers)) volume=\(session.outputVolume) rate=\(session.sampleRate) outputs=[\(ports)]"
+        captureSessionSnapshots.append(message)
+        diagnostics.record("Capture mixing \(message)")
+    }
+
+    private func restoreCaptureMixing(_ stage: String) {
+        recordCaptureSession("\(stage), before correction")
+        let session = AVAudioSession.sharedInstance()
+        // Starting the shared SystemSound haptic engine may add duckOthers.
+        // Restore the requested mixing policy once at each startup boundary.
+        // Do not repeatedly change the session while receiving audio buffers.
+        if session.categoryOptions.contains(.duckOthers) {
+            do {
+                var options = session.categoryOptions
+                options.remove(.duckOthers)
+                options.insert(.mixWithOthers)
+                try session.setCategory(session.category, mode: session.mode, options: options)
+            } catch {
+                diagnostics.record("Capture mixing correction failed: \(error as NSError)")
+            }
+        }
+        recordCaptureSession("\(stage), after correction")
     }
 
     private func prepareLiveHaptics() throws {
