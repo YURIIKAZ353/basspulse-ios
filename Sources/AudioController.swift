@@ -44,6 +44,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var isCapturingExternal = false
     @Published private(set) var captureInfo = ""
+    @Published var captureAudioOutputOnly = true
     @Published private(set) var isImporting = false
     @Published private(set) var levels: [Double] = [-100, -100]
     @Published private(set) var drive = 0.0
@@ -342,6 +343,7 @@ final class AudioController: ObservableObject {
             analysis.configure(settings)
             activeAnalysis = analysis
             let capture = SystemAudioCapture()
+            capture.audioOutputOnly = captureAudioOutputOnly
             capture.onEvent = { [weak diagnostics] message in diagnostics?.record(message) }
             capture.onPCM = { [weak self] buffer, time in
                 guard let result = analysis.process(buffer) else { return }
@@ -502,7 +504,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.12 (13)
+        BassPulse 0.1.13 (14)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)

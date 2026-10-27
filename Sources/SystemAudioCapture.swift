@@ -15,6 +15,7 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
     var onCancelled: () -> Void = {}
     var onError: (Error) -> Void = { _ in }
     var onSignal: (String) -> Void = { _ in }
+    var audioOutputOnly = true
     private let queue = DispatchQueue(label: "BassPulse.system-audio", qos: .userInitiated)
     private let lock = NSLock()
     private var accepting = false
@@ -71,11 +72,14 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
         let previous = stream
         let config = SCStreamConfiguration()
         config.capturesAudio = true
+        config.captureMicrophone = false
         config.excludesCurrentProcessAudio = true
         config.sampleRate = 48000
         config.channelCount = 2
         config.width = 64
         config.height = 64
+        onEvent("Capture configuration: audioOutputOnly=\(audioOutputOnly); \(BPCaptureRuntimeDescription(config))")
+        logSession("before stream")
         let created = SCStream(filter: filter, configuration: config, delegate: self)
         stream = created
         lock.lock(); audioStreamID = ObjectIdentifier(created); lock.unlock()
@@ -83,12 +87,16 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
             do {
                 if let previous { try? await previous.stopCapture() }
                 guard let self, self.token == attempt else { return }
-                // Screen output satisfies full-display capture. Frames are discarded.
-                try created.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
+                // Compare an audio-only consumer with the original screen+audio consumer.
+                // Whether this changes lock policy must be measured on the device.
+                if !self.audioOutputOnly {
+                    try created.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
+                }
                 try created.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.queue)
                 try await created.startCapture()
                 guard self.token == attempt else { try? await created.stopCapture(); return }
-                self.onEvent("System capture started: audio=48kHz/stereo; own audio excluded; video discarded")
+                self.onEvent("System capture started: audio=48kHz/stereo; microphone=false; audioOutputOnly=\(self.audioOutputOnly)")
+                self.logSession("after stream start")
                 self.onStarted()
             } catch {
                 guard let self, self.token == attempt else { return }
@@ -100,6 +108,7 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.stream === stream else { return }
+            self.logSession("stream stopped")
             self.onError(error)
         }
     }
@@ -132,6 +141,7 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
                 if seconds.isFinite && abs(seconds - now) < 10 { renderedAt = seconds }
             }
             if buffers == 1 || buffers % 100 == 0 {
+                if buffers == 1 || buffers % 1000 == 0 { logSession("buffer \(buffers)") }
                 let rms = sqrt(energy / max(1, Double(pcm.frameLength) * Double(pcm.format.channelCount)))
                 let db = 20 * log10(max(rms, 1e-8))
                 onEvent("Capture buffers=\(buffers) nonSilent=\(nonSilentBuffers) peak=\(peak) rmsDB=\(db) timestampAgeMS=\((now-renderedAt)*1000)")
@@ -145,5 +155,12 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
                 onEvent("Capture PCM decode errors=\(decodeErrors): \(error as NSError)")
             }
         }
+    }
+
+    private func logSession(_ stage: String) {
+        let session = AVAudioSession.sharedInstance()
+        let outputs = session.currentRoute.outputs.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ",")
+        let inputs = session.currentRoute.inputs.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ",")
+        onEvent("Capture session \(stage): category=\(session.category.rawValue) mode=\(session.mode.rawValue) options=\(session.categoryOptions.rawValue) rate=\(session.sampleRate) volume=\(session.outputVolume) outputs=[\(outputs)] inputs=[\(inputs)] latency=\(session.outputLatency)")
     }
 }

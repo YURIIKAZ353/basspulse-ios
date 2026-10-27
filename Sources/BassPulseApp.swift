@@ -60,6 +60,10 @@ struct ContentView: View {
                     Button { audio.startExternalCapture() } label: {
                         Label("Звук других приложений", systemImage: "apps.iphone")
                     }.disabled(audio.isPlaying || audio.isImporting)
+                    Toggle("Только аудиовыход • опыт", isOn: $audio.captureAudioOutputOnly)
+                        .disabled(audio.isPlaying || audio.isImporting)
+                    Text("Включено — только аудиобуферы. Выключено — прежний поток с видео. Проверяем, влияет ли это на остановку при блокировке.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("В системном окне выбери весь экран, затем включи музыку или видео в другом приложении. Микрофон не используется; запись в файл не создаётся. Доступность звука конкретного приложения и работа при блокировке проверяются отдельно.")
                         .font(.caption).foregroundStyle(.secondary)
                     if !audio.captureInfo.isEmpty { Text(audio.captureInfo).font(.caption) }
