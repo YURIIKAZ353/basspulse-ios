@@ -95,7 +95,10 @@ NSString *BPDescribeAudioQueueAccess(void) {
             if (rd == 0 && registers[0]) {
                 uintptr_t instance = registers[0], table = BPWord(instance), method = BPWord(table + 0x240);
                 NSDictionary *label = BPLabel(method);
-                if ([label[@"symbol"] containsString:@"AudioQueueNew"]) {
+                // Device system libraries can omit private C++ symbol names.
+                // Match the wrapper's API-global/vtable structure and image;
+                // preserve labels and bytes for independent verification.
+                if ([label[@"image"] containsString:@"AudioToolbox"]) {
                     result[@"newQueue"] = BPCode(method, 3072);
                     uintptr_t policy = BPWord(instance + 0x10), policyTable = BPWord(policy);
                     NSMutableArray *methods = [NSMutableArray array];
