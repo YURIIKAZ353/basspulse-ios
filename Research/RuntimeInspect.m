@@ -35,6 +35,51 @@ static NSDictionary *dumpCode(const void *address) {
               @"branches": branches };
 }
 
+static uintptr_t readPointer(uintptr_t address) {
+    uintptr_t value = 0;
+    vm_size_t size = 0;
+    if (vm_read_overwrite(mach_task_self(), address, sizeof(value), (vm_address_t)&value, &size) != KERN_SUCCESS || size != sizeof(value)) return 0;
+    return value;
+}
+
+static void unusedOutput(void *context, AudioQueueRef queue, AudioQueueBufferRef buffer) {}
+
+static NSDictionary *inspectQueueImplementation(NSMutableDictionary *functions) {
+    // Cloud simulator only: initialize the API through an idle output queue.
+    // No buffers are supplied, AudioQueueStart is never called, then dispose.
+    AudioStreamBasicDescription format = {0};
+    format.mSampleRate = 48000;
+    format.mFormatID = kAudioFormatLinearPCM;
+    format.mFormatFlags = kAudioFormatFlagsNativeFloatPacked;
+    format.mBytesPerPacket = format.mBytesPerFrame = 4;
+    format.mFramesPerPacket = 1;
+    format.mChannelsPerFrame = 1;
+    format.mBitsPerChannel = 32;
+    AudioQueueRef queue = NULL;
+    OSStatus status = AudioQueueNewOutput(&format, unusedOutput, NULL, NULL, NULL, 0, &queue);
+    if (queue) AudioQueueDispose(queue, true);
+    uintptr_t address = (uintptr_t)dlsym(RTLD_DEFAULT, "AudioQueueNewInput");
+    if (!address) return @{ @"idleOutputStatus": @(status), @"error": @"no input wrapper" };
+    uint32_t words[48] = {0};
+    vm_size_t size = 0;
+    if (vm_read_overwrite(mach_task_self(), address, sizeof(words), (vm_address_t)words, &size) != KERN_SUCCESS) return @{ @"idleOutputStatus": @(status), @"error": @"read failed" };
+    for (unsigned i = 0; i + 1 < size / 4; i++) {
+        uint32_t adrp = words[i], load = words[i + 1];
+        // ARM64 ADRP Xn; LDR X0,[Xn,#offset] in the inspected SDK27 wrapper.
+        if ((adrp & 0x9f000000u) != 0x90000000u || (load & 0xffc0001fu) != 0xf9400000u || ((load >> 5) & 31) != (adrp & 31)) continue;
+        int64_t immediate = (((adrp >> 5) & 0x7ffff) << 2) | ((adrp >> 29) & 3);
+        if (immediate & (1 << 20)) immediate -= (1 << 21);
+        uintptr_t global = ((address + i * 4) & ~(uintptr_t)4095) + immediate * 4096 + ((load >> 10) & 4095) * 8;
+        uintptr_t instance = readPointer(global), table = readPointer(instance);
+        uintptr_t implementation = readPointer(table + 0x240);
+        if (implementation) {
+            functions[@"AQ_virtual_newQueue"] = dumpCode((const void *)implementation);
+            return @{ @"idleOutputStatus": @(status), @"implementation": label((const void *)implementation) };
+        }
+    }
+    return @{ @"idleOutputStatus": @(status), @"error": @"wrapper global/vtable not resolved" };
+}
+
 int main(int argc, char **argv) {
     @autoreleasepool {
         dlopen("/System/Library/Frameworks/CoreHaptics.framework/CoreHaptics", RTLD_NOW);
@@ -84,17 +129,17 @@ int main(int argc, char **argv) {
             void *address = dlsym(RTLD_DEFAULT, name.UTF8String);
             functions[name] = address ? dumpCode(address) : @{ @"present": @NO };
         }
-        // Inspect helper code only; do not create or start an audio queue here.
+        result[@"aqInterfaceProbe"] = inspectQueueImplementation(functions);
         for (unsigned depth = 0; depth < 3 && functions.count < 40; depth++) {
             NSDictionary *snapshot = [functions copy];
             for (NSString *name in snapshot) {
-                if (![name containsString:@"AudioQueue"] && ![name containsString:@"ClientQueue"] && ![name containsString:@"permission"] && ![name containsString:@"Permission"]) continue;
+                if (![name hasPrefix:@"AudioQueue"] && ![name hasPrefix:@"AQ_virtual"] && ![name hasPrefix:@"_ZN2AQ"] && ![name containsString:@"ClientQueue"] && ![name containsString:@"ermission"]) continue;
                 for (NSDictionary *branch in snapshot[name][@"branches"]) {
                     NSDictionary *targetLabel = branch[@"label"];
                     NSString *symbol = targetLabel[@"symbol"] ?: @"";
                     NSString *lower = symbol.lowercaseString;
                     if (functions[symbol] || functions.count >= 40 || [targetLabel[@"offset"] longLongValue] != 0) continue;
-                    if ([lower containsString:@"audioqueue"] || [lower containsString:@"clientqueue"] || [lower containsString:@"permission"] || [lower containsString:@"entitlement"]) {
+                    if ([symbol hasPrefix:@"_ZN2AQ"] || [symbol hasPrefix:@"AudioQueue"] || [lower containsString:@"clientqueue"] || [lower containsString:@"permission"] || [lower containsString:@"entitlement"]) {
                         functions[symbol] = dumpCode((const void *)[branch[@"target"] unsignedLongLongValue]);
                     }
                 }
