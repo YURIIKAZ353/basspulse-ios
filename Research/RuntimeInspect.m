@@ -6,6 +6,10 @@
 #import <unistd.h>
 #import <stdatomic.h>
 extern NSDictionary *BPProbeMediaRoutes(void);
+@interface NSObject (BPResearchAudioSession)
++ (id)sharedInstance;
+- (BOOL)setCategory:(NSString *)category withOptions:(NSUInteger)options error:(NSError **)error;
+@end
 static uintptr_t readPointer(uintptr_t address);
 
 static NSString *readText(uintptr_t address) {
@@ -74,6 +78,16 @@ static uintptr_t readPointer(uintptr_t address) {
 static void unusedOutput(void *context, AudioQueueRef queue, AudioQueueBufferRef buffer) {}
 
 static NSDictionary *inspectQueueImplementation(NSMutableDictionary *functions) {
+    // The app initializes AVAudioSession before its queue. That may install a
+    // different session validator from the uninitialized CLI base class.
+    Class sessionClass = NSClassFromString(@"AVAudioSession");
+    if ([sessionClass respondsToSelector:@selector(sharedInstance)]) {
+        id session = [sessionClass sharedInstance];
+        NSError *sessionError = nil;
+        if ([session respondsToSelector:@selector(setCategory:withOptions:error:)]) {
+            [session setCategory:@"AVAudioSessionCategoryPlayback" withOptions:1 error:&sessionError];
+        }
+    }
     // Cloud simulator only: initialize the API through an idle output queue.
     // No buffers are supplied, AudioQueueStart is never called, then dispose.
     AudioStreamBasicDescription format = {0};
