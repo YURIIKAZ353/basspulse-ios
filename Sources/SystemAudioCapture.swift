@@ -72,13 +72,12 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
         let previous = stream
         let config = SCStreamConfiguration()
         config.capturesAudio = true
-        config.captureMicrophone = false
         config.excludesCurrentProcessAudio = true
         config.sampleRate = 48000
         config.channelCount = 2
         config.width = 64
         config.height = 64
-        onEvent("Capture configuration: audioOutputOnly=\(audioOutputOnly); \(BPCaptureRuntimeDescription(config))")
+        onEvent("Capture configuration: audioOutputOnly=\(audioOutputOnly) pickerMicrophone=\(filter.isMicrophoneEnabled); \(BPCaptureRuntimeDescription(config))")
         logSession("before stream")
         let created = SCStream(filter: filter, configuration: config, delegate: self)
         stream = created
@@ -95,7 +94,7 @@ final class SystemAudioCapture: NSObject, AudioCaptureSource, SCContentSharingPi
                 try created.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.queue)
                 try await created.startCapture()
                 guard self.token == attempt else { try? await created.stopCapture(); return }
-                self.onEvent("System capture started: audio=48kHz/stereo; microphone=false; audioOutputOnly=\(self.audioOutputOnly)")
+                self.onEvent("System capture started: audio=48kHz/stereo; pickerMicrophone=\(filter.isMicrophoneEnabled); audioOutputOnly=\(self.audioOutputOnly)")
                 self.logSession("after stream start")
                 self.onStarted()
             } catch {
