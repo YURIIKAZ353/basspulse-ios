@@ -74,7 +74,20 @@ static NSDictionary *inspectQueueImplementation(NSMutableDictionary *functions) 
         uintptr_t implementation = readPointer(table + 0x240);
         if (implementation) {
             functions[@"AQ_virtual_newQueue"] = dumpCode((const void *)implementation);
-            return @{ @"idleOutputStatus": @(status), @"implementation": label((const void *)implementation) };
+            // NewQueue's first virtual call is the access validator stored at
+            // V2Impl+0x10, vtable+0x10. Resolve and inspect; never invoke it.
+            uintptr_t validator = readPointer(instance + 0x10);
+            uintptr_t validatorTable = readPointer(validator);
+            NSMutableArray *validationMethods = [NSMutableArray array];
+            for (unsigned slot = 0; slot < 12; slot++) {
+                uintptr_t method = readPointer(validatorTable + slot * sizeof(uintptr_t));
+                if (method) {
+                    NSString *key = [NSString stringWithFormat:@"AQ_virtual_validator_%u", slot];
+                    functions[key] = dumpCode((const void *)method);
+                    [validationMethods addObject:@{ @"slot": @(slot), @"label": label((const void *)method) }];
+                }
+            }
+            return @{ @"idleOutputStatus": @(status), @"implementation": label((const void *)implementation), @"validationMethods": validationMethods };
         }
     }
     return @{ @"idleOutputStatus": @(status), @"error": @"wrapper global/vtable not resolved" };
