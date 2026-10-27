@@ -46,6 +46,7 @@ final class AudioController: ObservableObject {
     @Published private(set) var captureInfo = ""
     @Published var captureAudioOutputOnly = true
     private var captureConfigurationSnapshot = ""
+    private var captureAccessSnapshot = ""
     private var captureSessionSnapshots: [String] = []
     @Published private(set) var isImporting = false
     @Published private(set) var levels: [Double] = [-100, -100]
@@ -334,6 +335,7 @@ final class AudioController: ObservableObject {
         playbackMode = .systemContinuous
         lastFailure = ""
         captureConfigurationSnapshot = ""
+        captureAccessSnapshot = ""
         captureSessionSnapshots = []
         do {
             let session = AVAudioSession.sharedInstance()
@@ -362,6 +364,9 @@ final class AudioController: ObservableObject {
                 // Preserve startup metadata outside the rolling event log.
                 if message.hasPrefix("Capture configuration:") {
                     self?.captureConfigurationSnapshot = message
+                }
+                if message.hasPrefix("DirectTap access probe:") {
+                    self?.captureAccessSnapshot = message
                 }
             }
             capture.onPCM = { [weak self] buffer, time in
@@ -525,7 +530,7 @@ final class AudioController: ObservableObject {
 
     func diagnosticText() -> String {
         """
-        BassPulse 0.1.15 (16)
+        BassPulse 0.1.16 (17)
         iOS: \(UIDevice.current.systemVersion)
         Route: \(route)
         Reported output latency: \(latencyMS) ms (estimate)
@@ -542,6 +547,7 @@ final class AudioController: ObservableObject {
         Background capability request enabled: \(requestBackgroundHaptics)
         External capture: \(isCapturingExternal); \(captureInfo)
         Capture startup configuration: \(captureConfigurationSnapshot)
+        Capture access check: \(captureAccessSnapshot)
         Capture session snapshots:
         \(captureSessionSnapshots.joined(separator: "\n"))
         Playback backend: \(playbackMode == .systemContinuous ? "AVAudioEngine music + SystemSound-category Core Haptics; ONE continuous player + dynamic parameters, no repeated short starts" : playbackMode.usesSystemPulse ? "continuous AVAudioEngine + live DSP + AudioToolbox pulses; no preplanned pattern and no Core Haptics engine" : playbackMode == .planned ? "ONE complete preplanned Core Haptics pattern + continuous AVAudioEngine music; no per-beat players or dynamic parameter updates" : useCombinedPlayback ? "combined audioCustom + frequency patterns; analysis prepared ahead, API counter counts scheduled patterns" : playbackMode == .liveShared ? "continuous AVAudioEngine music + shared Core Haptics audioContinuous + live frequency haptics" : "legacy AVAudioEngine + haptics-only commands")

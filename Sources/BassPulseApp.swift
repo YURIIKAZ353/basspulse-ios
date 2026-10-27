@@ -19,7 +19,7 @@ struct ContentView: View {
                 Section {
                     Text("Бас, который можно почувствовать")
                         .font(.headline)
-                    Text("Прототип 0.1.12 • свои файлы и захват звука других приложений через системный выбор источника.")
+                    Text("Прототип \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") • свои файлы и захват звука других приложений через системный выбор источника.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Источник") {

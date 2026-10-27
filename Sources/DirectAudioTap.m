@@ -1,4 +1,5 @@
 #import "DirectAudioTap.h"
+#import "AudioQueueAccessProbe.h"
 #import <AudioToolbox/AudioToolbox.h>
 #import <objc/runtime.h>
 #import <unistd.h>
@@ -71,6 +72,7 @@ static void BPDirectInput(void *context, AudioQueueRef queue, AudioQueueBufferRe
     // Never fall back to a microphone input queue if this request is refused.
     OSStatus status = AudioQueueNewInput(&asbd, BPDirectInput, (__bridge void *)self, NULL, NULL, 0x800, &_queue);
     self.onEvent([NSString stringWithFormat:@"DirectTap AudioQueueNewInput flags=0x800 status=%d", (int)status]);
+    self.onEvent([@"DirectTap access probe: " stringByAppendingString:BPDescribeAudioQueueAccess()]);
     if (status != noErr) return [self fail:@"AudioQueueNewInput" status:status error:error];
     // 'qtob': the tap-object property used by replayd; value is the ObjC object,
     // not a pointer to a pointer. Audio service enforces its own access checks.
